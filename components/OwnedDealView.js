@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { B, hf, bf, fmt, Badge } from '../lib/brand'
 import DealDocuments from './DealDocuments'
+import OwnedUnderwrite from './OwnedUnderwrite'
 
-export default function OwnedDealView({ deal, onBack }) {
+export default function OwnedDealView({ deal: dealProp, onBack }) {
+  const [deal, setDeal] = useState(dealProp)
   const [tab, setTab] = useState('overview')
   const [investors, setInvestors] = useState([])
   const [activities, setActivities] = useState([])
@@ -13,6 +15,18 @@ export default function OwnedDealView({ deal, onBack }) {
   const [newRec, setNewRec] = useState({ name: '', category: 'Debt service', amount: '', frequency: 'monthly', payee: '', notes: '' })
   const [newTx, setNewTx] = useState({ date: new Date().toISOString().slice(0, 10), description: '', amount: '', category: 'Other' })
   const [txFilter, setTxFilter] = useState('all')
+  const [editingMetric, setEditingMetric] = useState(null)
+  const [editVal, setEditVal] = useState('')
+
+  // Sync if parent prop changes
+  useEffect(() => { setDeal(dealProp) }, [dealProp])
+
+  const saveMetric = async (field, raw) => {
+    const val = raw === '' ? null : isNaN(Number(raw)) ? raw : Number(raw)
+    const { error } = await supabase.from('deals').update({ [field]: val }).eq('id', deal.id)
+    if (!error) setDeal(prev => ({ ...prev, [field]: val }))
+    setEditingMetric(null)
+  }
 
   const fetchInvestors = useCallback(async () => {
     if (!deal?.id) return
@@ -88,6 +102,7 @@ export default function OwnedDealView({ deal, onBack }) {
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
+    { id: 'underwrite', label: 'Underwrite' },
     { id: 'investors', label: `Investors (${investors.length})` },
     { id: 'bank', label: 'Bank / Ledger' },
     { id: 'recurring', label: `Recurring (${recurring.length})` },
@@ -117,12 +132,14 @@ export default function OwnedDealView({ deal, onBack }) {
         </div>
       </div>
 
-      {/* Key metrics */}
+      {/* Key metrics — editable where field exists */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[
-          { l: 'Purchase price', v: fmt(deal.purchase_price || deal.asking_price), c: B.blue },
-          { l: 'Building SF', v: deal.building_sf ? Number(deal.building_sf).toLocaleString() : '—', c: B.black },
-          { l: 'Lot acres', v: deal.lot_acres || '—', c: B.black },
+          { l: 'Purchase price', v: fmt(deal.purchase_price || deal.asking_price), c: B.blue, field: 'purchase_price', raw: deal.purchase_price || deal.asking_price || '' },
+          { l: 'Building SF', v: deal.building_sf ? Number(deal.building_sf).toLocaleString() : '—', c: B.black, field: 'building_sf', raw: deal.building_sf || '' },
+          { l: 'Lot acres', v: deal.lot_acres || '—', c: B.black, field: 'lot_acres', raw: deal.lot_acres || '' },
+          { l: 'Price / SF', v: deal.building_sf && (deal.purchase_price || deal.asking_price) ? '$' + Math.round((deal.purchase_price || deal.asking_price) / deal.building_sf).toLocaleString() : '—', c: B.black, field: 'price_per_sf', raw: deal.price_per_sf || '' },
+          { l: 'Clear height', v: deal.clear_height ? deal.clear_height + ' ft' : '—', c: B.black, field: 'clear_height', raw: deal.clear_height || '' },
           { l: 'Total equity', v: '$' + totalCommitted.toLocaleString(), c: B.blue },
           { l: 'GP equity', v: '$' + gpCommitted.toLocaleString(), c: B.amber },
           { l: 'LP equity', v: '$' + lpCommitted.toLocaleString(), c: B.green },
@@ -131,9 +148,26 @@ export default function OwnedDealView({ deal, onBack }) {
           { l: 'Bank balance', v: bankBalance !== null ? '$' + Math.round(bankBalance).toLocaleString() : '—', c: bankBalance > 50000 ? B.green : bankBalance > 0 ? B.amber : B.red },
           { l: 'Monthly burn', v: '$' + Math.round(monthlyRecurring).toLocaleString(), c: B.red },
         ].map((s, i) => (
-          <div key={i} style={{ flex: '1 1 100px', background: B.white, borderRadius: 4, padding: '10px 12px', border: `1px solid ${B.gray20}`, minWidth: 90 }}>
-            <div style={{ fontSize: 9, color: B.gray, fontFamily: bf, textTransform: 'uppercase', letterSpacing: 0.3 }}>{s.l}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: s.c, fontFamily: hf }}>{s.v}</div>
+          <div key={i}
+            onClick={() => { if (s.field) { setEditingMetric(s.field); setEditVal(String(s.raw || '')); } }}
+            style={{ flex: '1 1 100px', background: B.white, borderRadius: 4, padding: '10px 12px', border: `1px solid ${editingMetric === s.field ? B.blue : B.gray20}`, minWidth: 90, cursor: s.field ? 'pointer' : 'default', position: 'relative' }}>
+            <div style={{ fontSize: 9, color: B.gray, fontFamily: bf, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {s.l}{s.field && <span style={{ fontSize: 8, marginLeft: 3, color: B.blue }}>✎</span>}
+            </div>
+            {editingMetric === s.field ? (
+              <input
+                autoFocus
+                type="text"
+                value={editVal}
+                onChange={e => setEditVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveMetric(s.field, editVal); if (e.key === 'Escape') setEditingMetric(null); }}
+                onBlur={() => saveMetric(s.field, editVal)}
+                onClick={e => e.stopPropagation()}
+                style={{ fontSize: 18, fontWeight: 700, color: s.c, fontFamily: hf, border: 'none', borderBottom: `2px solid ${B.blue}`, outline: 'none', background: 'transparent', width: '100%', padding: 0, margin: 0 }}
+              />
+            ) : (
+              <div style={{ fontSize: 20, fontWeight: 700, color: s.c, fontFamily: hf }}>{s.v}</div>
+            )}
           </div>
         ))}
       </div>
@@ -157,19 +191,36 @@ export default function OwnedDealView({ deal, onBack }) {
             <div style={box}>
               {secTitle('Property details')}
               {[
-                ['Address', deal.address],
-                ['City / State', `${deal.city}, ${deal.state}`],
-                ['Market', deal.market],
-                ['Property type', deal.property_type],
-                ['Building SF', deal.building_sf ? Number(deal.building_sf).toLocaleString() + ' SF' : '—'],
-                ['Lot size', deal.lot_acres ? deal.lot_acres + ' acres' : '—'],
-                ['Year built', deal.year_built || '—'],
-                ['Zoning', deal.zoning || 'Industrial'],
-                ['Parcel #', deal.parcel_number || '—'],
-              ].map(([l, v], i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: `1px solid ${B.gray10}`, fontSize: 12, fontFamily: bf }}>
-                  <span style={{ color: B.gray }}>{l}</span>
-                  <span style={{ color: B.black, fontWeight: 500 }}>{v}</span>
+                { l: 'Address', v: deal.address, field: 'address' },
+                { l: 'City / State', v: `${deal.city}, ${deal.state}` },
+                { l: 'Market', v: deal.market, field: 'market' },
+                { l: 'Property type', v: deal.property_type, field: 'property_type' },
+                { l: 'Building SF', v: deal.building_sf ? Number(deal.building_sf).toLocaleString() + ' SF' : '—', field: 'building_sf', raw: deal.building_sf || '' },
+                { l: 'Lot size', v: deal.lot_acres ? deal.lot_acres + ' acres' : '—', field: 'lot_acres', raw: deal.lot_acres || '' },
+                { l: 'Clear height', v: deal.clear_height ? deal.clear_height + ' ft' : '—', field: 'clear_height', raw: deal.clear_height || '' },
+                { l: 'Dock doors', v: deal.dock_doors || '—', field: 'dock_doors', raw: deal.dock_doors || '' },
+                { l: 'Year built', v: deal.year_built || '—', field: 'year_built', raw: deal.year_built || '' },
+                { l: 'Zoning', v: deal.zoning || 'Industrial', field: 'zoning', raw: deal.zoning || '' },
+                { l: 'Parcel #', v: deal.parcel_number || '—', field: 'parcel_number', raw: deal.parcel_number || '' },
+              ].map((row, i) => (
+                <div key={i}
+                  onClick={() => { if (row.field) { setEditingMetric('detail_' + row.field); setEditVal(String(row.raw !== undefined ? row.raw : (row.field === 'address' ? deal.address : row.field === 'market' ? deal.market : row.field === 'property_type' ? deal.property_type : ''))); } }}
+                  style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: `1px solid ${B.gray10}`, fontSize: 12, fontFamily: bf, cursor: row.field ? 'pointer' : 'default' }}>
+                  <span style={{ color: B.gray }}>{row.l}{row.field && <span style={{ fontSize: 9, marginLeft: 3, color: B.blue }}>✎</span>}</span>
+                  {editingMetric === 'detail_' + row.field ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editVal}
+                      onChange={e => setEditVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveMetric(row.field, editVal); if (e.key === 'Escape') setEditingMetric(null); }}
+                      onBlur={() => saveMetric(row.field, editVal)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 12, fontWeight: 500, color: B.black, fontFamily: bf, border: 'none', borderBottom: `2px solid ${B.blue}`, outline: 'none', background: 'transparent', width: 140, textAlign: 'right', padding: 0 }}
+                    />
+                  ) : (
+                    <span style={{ color: B.black, fontWeight: 500 }}>{row.v}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -248,6 +299,9 @@ export default function OwnedDealView({ deal, onBack }) {
           </div>
         </div>
       )}
+
+      {/* Underwrite tab */}
+      {tab === 'underwrite' && <OwnedUnderwrite deal={deal} />}
 
       {/* Investors tab */}
       {tab === 'investors' && (
