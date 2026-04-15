@@ -49,10 +49,10 @@ export default async function handler(req, res) {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2024-10-22',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6-20250217',
         max_tokens: 2500,
         messages: [{
           role: 'user',
@@ -65,10 +65,12 @@ export default async function handler(req, res) {
     })
 
     const responseText = await response.text()
-    if (!response.ok) return res.status(500).json({ error: 'API error: ' + responseText.slice(0, 300) })
+    if (!response.ok) return res.status(500).json({ error: 'API error (' + response.status + '): ' + responseText.slice(0, 500) })
 
     let data
-    try { data = JSON.parse(responseText) } catch (e) { return res.status(500).json({ error: 'Non-JSON response' }) }
+    try { data = JSON.parse(responseText) } catch (e) { return res.status(500).json({ error: 'Non-JSON response: ' + responseText.slice(0, 300) }) }
+
+    if (data.error) return res.status(500).json({ error: 'Anthropic error: ' + (data.error.message || JSON.stringify(data.error)) })
 
     const allText = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')
     const cleaned = allText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
@@ -84,6 +86,6 @@ export default async function handler(req, res) {
       deal_fields: result.deal_fields || {},
     })
   } catch (e) {
-    return res.status(500).json({ error: e.message })
+    return res.status(500).json({ error: 'Server error: ' + e.message })
   }
 }
