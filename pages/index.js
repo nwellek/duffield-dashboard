@@ -246,17 +246,67 @@ function HomePage({ deals, setActiveTab, onClickDeal }) {
   )
 }
 
+// ─── URL ROUTING HELPERS ───
+const VALID_TABS = ['home', 'brief', 'tracker', 'tasks', 'calendar', 'crm', 'comps', 'treasury', 'settings', 'alerts']
+const TAB_SLUGS = {
+  home: '', brief: 'brief', tracker: 'tracker', tasks: 'tasks', calendar: 'calendar',
+  crm: 'crm', comps: 'comps', treasury: 'treasury', settings: 'settings', alerts: 'alerts'
+}
+const SLUG_TO_TAB = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k, v]) => [v, k]))
+
+function getTabFromHash() {
+  if (typeof window === 'undefined') return 'home'
+  const raw = window.location.hash.replace(/^#\/?/, '')
+  if (!raw) return 'home'
+  // owned deal route: owned/DEAL_ID
+  if (raw.startsWith('owned/')) return 'owned_' + raw.replace('owned/', '')
+  return SLUG_TO_TAB[raw] || 'home'
+}
+
+function pushHash(tab) {
+  if (typeof window === 'undefined') return
+  let slug
+  if (tab.startsWith('owned_')) {
+    slug = 'owned/' + tab.replace('owned_', '')
+  } else {
+    slug = TAB_SLUGS[tab] ?? tab
+  }
+  const newHash = slug ? '#/' + slug : '#/'
+  if (window.location.hash !== newHash) {
+    window.history.pushState(null, '', newHash)
+  }
+}
+
 // ─── MAIN ───
 export default function Dashboard() {
   const { data: session } = useSession()
   const [deals, setDeals] = useState([])
-  const [activeTab, setActiveTab] = useState('home')
+  const [activeTab, setActiveTabRaw] = useState('home')
   const [trackerView, setTrackerView] = useState('table') // table, map
   const [editing, setEditing] = useState(null)
   const [showNew, setShowNew] = useState(false)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [loading, setLoading] = useState(true)
   const [alertCount, setAlertCount] = useState(0)
+
+  // Wrap setActiveTab to also push hash
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabRaw(tab)
+    pushHash(tab)
+  }, [])
+
+  // Read hash on mount + listen for back/forward
+  useEffect(() => {
+    const initial = getTabFromHash()
+    setActiveTabRaw(initial)
+
+    const onPop = () => {
+      const tab = getTabFromHash()
+      setActiveTabRaw(tab)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   const fetchDeals = useCallback(async () => {
     // Supabase limits to 1000 rows per request, so paginate
