@@ -238,29 +238,30 @@ export default function UnderwriteTab({ deal }) {
         </div>
       </div>
 
-      {/* HERO METRICS */}
-      <div style={{ background: 'linear-gradient(135deg, #1a1a2e, #2a3f5f)', borderRadius: 6, padding: 16, color: B.white, marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12 }}>
-          {[
-            { l: 'NOI', v: fc(c.noi), c: c.noi > 0 ? '#2A9D8F' : '#EF4444' },
-            { l: 'Going-In Cap', v: pct(c.goingInCap), c: c.goingInCap >= 9 ? '#2A9D8F' : c.goingInCap >= 7 ? '#F59E0B' : '#EF4444' },
-            { l: 'YOC (all-in)', v: pct(c.yocBasis), c: c.yocBasis >= 10 ? '#2A9D8F' : c.yocBasis >= 8 ? '#F59E0B' : '#EF4444' },
-            { l: 'Unlev IRR', v: pct(c.uIRR), c: c.uIRR >= 15 ? '#2A9D8F' : c.uIRR >= 10 ? '#F59E0B' : '#EF4444' },
-            { l: 'Lev IRR', v: pct(c.lIRR), c: c.lIRR >= 20 ? '#2A9D8F' : c.lIRR >= 15 ? '#F59E0B' : '#EF4444' },
-            { l: 'Lev MOIC', v: c.lMOIC > 0 ? c.lMOIC.toFixed(2) + 'x' : '—', c: c.lMOIC >= 2 ? '#2A9D8F' : '#F59E0B' },
-            { l: 'Deal Profit', v: compactK(c.profit), c: c.profit > 0 ? '#2A9D8F' : '#EF4444' },
-            { l: 'Equity', v: compactK(c.equity), c: '#fff' },
-          ].map((item, i) => (
-            <div key={i}><div style={{ fontSize: 8, color: '#8892a4', textTransform: 'uppercase', letterSpacing: 0.5 }}>{item.l}</div><div style={{ fontSize: 18, fontWeight: 900, color: item.c, fontFamily: hf }}>{item.v}</div></div>
-          ))}
-        </div>
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 10, paddingTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 10, color: '#8892a4' }}>
-          <span>DSCR: <strong style={{ color: c.dscr >= 1.25 ? '#2A9D8F' : '#EF4444' }}>{c.dscr > 0 ? c.dscr.toFixed(2) + 'x' : '—'}</strong></span>
-          <span>Debt Yield: <strong>{c.debtYield > 0 ? pct(c.debtYield * 100) : '—'}</strong></span>
-          <span>$/SF (purchase): <strong style={{ color: '#fff' }}>{c.psfPurch > 0 ? '$' + Math.round(c.psfPurch) : '—'}</strong></span>
-          <span>$/SF (all-in): <strong style={{ color: '#fff' }}>{c.psfBasis > 0 ? '$' + Math.round(c.psfBasis) : '—'}</strong></span>
-          <span>Exit Value: <strong style={{ color: '#2A9D8F' }}>{compactK(c.grossExit)}</strong></span>
-        </div>
+      {/* KEY METRICS */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {[
+          { l: 'NOI', v: fc(c.noi), color: c.noi > 0 ? B.green : B.red },
+          { l: 'Going-In Cap', v: pct(c.goingInCap), color: c.goingInCap >= 9 ? B.green : c.goingInCap >= 7 ? B.amber : B.red },
+          { l: 'YOC (all-in)', v: pct(c.yocBasis), color: c.yocBasis >= 10 ? B.green : c.yocBasis >= 8 ? B.amber : B.red },
+          { l: 'Unlev IRR', v: pct(c.uIRR), color: c.uIRR >= 15 ? B.green : c.uIRR >= 10 ? B.amber : B.red },
+          { l: 'Lev IRR', v: pct(c.lIRR), color: c.lIRR >= 20 ? B.green : c.lIRR >= 15 ? B.amber : B.red },
+          { l: 'MOIC', v: c.lMOIC > 0 ? c.lMOIC.toFixed(2) + 'x' : '—', color: c.lMOIC >= 2 ? B.green : B.amber },
+          { l: 'Profit', v: compactK(c.profit), color: c.profit > 0 ? B.green : B.red },
+          { l: 'Equity', v: compactK(c.equity), color: B.blue },
+        ].map((m, i) => (
+          <div key={i} style={{ flex: '1 1 80px', minWidth: 75, background: B.white, borderRadius: 4, padding: '8px 10px', border: `1px solid ${B.gray20}` }}>
+            <div style={{ fontSize: 9, color: B.gray, fontFamily: bf, textTransform: 'uppercase', letterSpacing: 0.3 }}>{m.l}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: m.color, fontFamily: hf }}>{m.v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12, fontSize: 11, fontFamily: bf, color: B.gray }}>
+        <span>DSCR: <strong style={{ color: c.dscr >= 1.25 ? B.green : B.red, fontFamily: hf }}>{c.dscr > 0 ? c.dscr.toFixed(2) + 'x' : '—'}</strong></span>
+        <span>Debt Yield: <strong style={{ fontFamily: hf }}>{c.debtYield > 0 ? pct(c.debtYield * 100) : '—'}</strong></span>
+        <span>$/SF: <strong style={{ fontFamily: hf }}>{c.psfPurch > 0 ? '$' + Math.round(c.psfPurch) : '—'}</strong></span>
+        <span>$/SF (all-in): <strong style={{ fontFamily: hf }}>{c.psfBasis > 0 ? '$' + Math.round(c.psfBasis) : '—'}</strong></span>
+        <span>Exit: <strong style={{ color: B.green, fontFamily: hf }}>{compactK(c.grossExit)}</strong></span>
       </div>
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
