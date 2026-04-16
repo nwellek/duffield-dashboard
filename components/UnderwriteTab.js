@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { supabase } from '../lib/supabase'
 import { B, hf, bf, fmt, MARKET_BENCHMARKS } from '../lib/brand'
 
 const n = (u, k) => { const v = String(u[k] || '').replace(/,/g, ''); return parseFloat(v) || 0 }
@@ -29,7 +30,7 @@ const IS = { width: '100%', padding: '6px 8px', border: `1px solid ${B.gray20}`,
 const LS = { fontSize: 10, color: B.gray, fontFamily: bf, marginBottom: 1, display: 'block' }
 const SH = { fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginBottom: 6, marginTop: 14, letterSpacing: 0.4 }
 
-export default function UnderwriteTab({ deal, onSave }) {
+export default function UnderwriteTab({ deal }) {
   const mkt = MARKET_BENCHMARKS[deal.market] || MARKET_BENCHMARKS._default
   const saved = (() => { try { return JSON.parse(deal.underwrite_data || '{}') } catch(e) { return {} } })()
 
@@ -70,12 +71,31 @@ export default function UnderwriteTab({ deal, onSave }) {
     loan_closing_pct: saved.loan_closing_pct || '3',
   })
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState(null)
+  const timerRef = useRef(null)
+
   const set = (k, val) => { setU(p => ({ ...p, [k]: val })); setDirty(true) }
   const v = (k) => n(u, k)
 
-  const saveUnderwrite = async () => {
-    if (deal.id && onSave) { await onSave({ ...deal, underwrite_data: JSON.stringify(u) }); setDirty(false) }
-  }
+  // Auto-save: debounce 1.5s after last change, save directly to Supabase
+  const doSave = useCallback(async (data) => {
+    if (!deal.id) return
+    setSaving(true)
+    try {
+      await supabase.from('deals').update({ underwrite_data: JSON.stringify(data), updated_at: new Date().toISOString() }).eq('id', deal.id)
+      setDirty(false)
+      setLastSaved(new Date())
+    } catch (e) { console.error('Underwrite save error:', e) }
+    setSaving(false)
+  }, [deal.id])
+
+  useEffect(() => {
+    if (!dirty) return
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => doSave(u), 1500)
+    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
+  }, [u, dirty, doSave])
 
   const field = (label, key, opts = {}) => (
     <div key={key} style={{ flex: opts.flex || '1 1 100px', minWidth: opts.minW || 80 }}>
@@ -102,14 +122,15 @@ export default function UnderwriteTab({ deal, onSave }) {
     </div>
   )
   const toggle = (label, options, key) => (
-    <div style={{ display: 'flex', gap: 2, marginBottom: 8 }}>
-      <span style={{ fontSize: 10, color: B.gray, fontFamily: bf, alignSelf: 'center', marginRight: 6 }}>{label}</span>
+    <div style={{ display: 'inline-flex', alignItems: 'center', background: B.gray10, borderRadius: 4, padding: 2, marginRight: 12, marginBottom: 6 }}>
       {options.map(o => (
         <button key={o.v} onClick={() => set(key, o.v)} style={{
-          padding: '4px 12px', borderRadius: 3, fontSize: 11, fontWeight: u[key] === o.v ? 700 : 400,
-          border: `1px solid ${u[key] === o.v ? B.blue : B.gray20}`,
-          background: u[key] === o.v ? B.blue : B.white, color: u[key] === o.v ? B.white : B.gray,
+          padding: '5px 14px', borderRadius: 3, fontSize: 11, fontWeight: u[key] === o.v ? 700 : 400,
+          border: 'none', background: u[key] === o.v ? B.white : 'transparent',
+          color: u[key] === o.v ? B.blue : B.gray60,
           cursor: 'pointer', fontFamily: hf,
+          boxShadow: u[key] === o.v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+          transition: 'all 0.15s',
         }}>{o.l}</button>
       ))}
     </div>
@@ -207,12 +228,14 @@ export default function UnderwriteTab({ deal, onSave }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-        <div>
-          {toggle('Deal type', [{ v: 'building', l: 'Building' }, { v: 'ios', l: 'IOS Only' }, { v: 'both', l: 'Building + Yard' }], 'deal_type')}
-          {toggle('Scenario', [{ v: 'in_place', l: 'Lease In Place' }, { v: 'lease_up', l: 'Lease-Up' }], 'scenario')}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+          {toggle('', [{ v: 'building', l: 'Building' }, { v: 'ios', l: 'IOS Only' }, { v: 'both', l: 'Bldg + Yard' }], 'deal_type')}
+          {toggle('', [{ v: 'in_place', l: 'Lease In Place' }, { v: 'lease_up', l: 'Lease-Up' }], 'scenario')}
         </div>
-        {dirty && <button onClick={saveUnderwrite} style={{ padding: '8px 20px', background: B.blue, color: B.white, border: 'none', borderRadius: 3, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: hf }}>Save underwrite</button>}
+        <div style={{ fontSize: 10, fontFamily: bf, color: B.gray40 }}>
+          {saving ? '⟳ Saving...' : dirty ? '● Unsaved' : lastSaved ? '✓ Saved' : ''}
+        </div>
       </div>
 
       {/* HERO METRICS */}
