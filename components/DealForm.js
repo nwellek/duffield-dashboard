@@ -66,7 +66,7 @@ function SummaryView({ d, grade, total, g, col, scores, estYOC, isIOS, onChangeS
         </div>
         <div style={{ flex: '1 1 200px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginBottom: 4 }}>Deal</div>
-          {sr('Asking Price', price ? fmt(price) : '—', true)}
+          {sr('Latest Acq Price', price ? fmt(price) : '—', true)}
           {sr('$/SF', psf ? '$' + psf.toFixed(0) : '—')}
           {sr('$/Acre', pac ? '$' + Math.round(pac).toLocaleString() : '—')}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: `1px solid ${B.gray10}`, fontSize: 12, fontFamily: bf }}>
@@ -168,14 +168,14 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
   const is = { width: '100%', padding: '7px 10px', border: `1px solid ${B.gray40}`, borderRadius: 3, fontSize: 13, color: B.black, background: B.white, outline: 'none', boxSizing: 'border-box', fontFamily: bf }
   const ls = { fontSize: 11, fontWeight: 500, color: B.gray, marginBottom: 2, display: 'block', fontFamily: bf }
 
-  const F = ({ l, k, t = 'text', ph, h }) => (
-    <div style={{ flex: h ? '1 1 47%' : '1 1 100%', minWidth: h ? 130 : 'auto' }}>
+  const field = (l, k, t = 'text', ph, h) => (
+    <div key={k} style={{ flex: h ? '1 1 47%' : '1 1 100%', minWidth: h ? 130 : 'auto' }}>
       <label style={ls}>{l}</label>
       <input style={is} type={t} placeholder={ph} value={d[k] ?? ''} onChange={e => set(k, e.target.value)} />
     </div>
   )
-  const S = ({ l, k, opts, h }) => (
-    <div style={{ flex: h ? '1 1 47%' : '1 1 100%', minWidth: h ? 130 : 'auto' }}>
+  const sel = (l, k, opts, h) => (
+    <div key={k} style={{ flex: h ? '1 1 47%' : '1 1 100%', minWidth: h ? 130 : 'auto' }}>
       <label style={ls}>{l}</label>
       <select style={{ ...is, cursor: 'pointer' }} value={d[k]} onChange={e => set(k, e.target.value)}>
         {opts.map(o => <option key={typeof o === 'string' ? o : o.v} value={typeof o === 'string' ? o : o.v}>{typeof o === 'string' ? o : o.l}</option>)}
@@ -234,20 +234,20 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
           {/* Details tab */}
           {tab === 'details' && (
             <div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="Address" k="address" ph="123 Industrial Blvd" /></div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="City" k="city" ph="Louisville" h /><F l="State" k="state" ph="KY" h /></div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><S l="Market" k="market" opts={MARKETS} h /><S l="Type" k="property_type" opts={PTYPES} h /></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{field('Address', 'address', 'text', '123 Industrial Blvd')}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{field('City', 'city', 'text', 'Louisville', true)}{field('State', 'state', 'text', 'KY', true)}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{sel('Market', 'market', MARKETS, true)}{sel('Type', 'property_type', PTYPES, true)}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <S l="Status" k="status" opts={COLUMNS.map(c => ({ v: c.id, l: c.label }))} h />
-                <F l="Asking ($)" k="asking_price" t="number" ph="925000" h />
+                {sel('Status', 'status', COLUMNS.map(c => ({ v: c.id, l: c.label })), true)}
+                {field('Latest Acq Price ($)', 'asking_price', 'number', '925000', true)}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Building SF" k="building_sf" t="number" ph="8800" h />
-                <F l="Lot acres" k="lot_acres" t="number" ph="3.57" h />
+                {field('Building SF', 'building_sf', 'number', '8800', true)}
+                {field('Lot acres', 'lot_acres', 'number', '3.57', true)}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Parcel #" k="parcel_number" ph="080701770000" h />
-                <F l="Zoning" k="zoning" ph="M-2 Industrial" h />
+                {field('Parcel #', 'parcel_number', 'text', '080701770000', true)}
+                {field('Zoning', 'zoning', 'text', 'M-2 Industrial', true)}
               </div>
               <div style={{ marginBottom: 8 }}>
                 <label style={ls}>Notes</label>
@@ -260,25 +260,25 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
           {tab === 'owner' && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, marginBottom: 8, fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Property owner</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="Owner name" k="owner" ph="Mason Ronald A" /></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{field('Owner name', 'owner', 'text', 'Mason Ronald A')}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Phone" k="owner_phone" ph="(520) 980-5509" h />
-                <F l="Email" k="owner_email" ph="owner@company.com" h />
+                {field('Phone', 'owner_phone', 'text', '(520) 980-5509', true)}
+                {field('Email', 'owner_email', 'text', 'owner@company.com', true)}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Owner address" k="owner_address" ph="123 Main St, City, ST 12345" />
+                {field('Owner address', 'owner_address', 'text', '123 Main St, City, ST 12345')}
               </div>
 
               <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, margin: '16px 0 8px', fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Broker / contact</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Contact name" k="contact_name" ph="Nathan Mosley, Highwoods" h />
-                <F l="Contact method" k="contact_method" ph="email or phone" h />
+                {field('Contact name', 'contact_name', 'text', 'Nathan Mosley, Highwoods', true)}
+                {field('Contact method', 'contact_method', 'text', 'email or phone', true)}
               </div>
 
               <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, margin: '16px 0 8px', fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Sale history</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                <F l="Purchase date" k="purchase_date" ph="2015" h />
-                <F l="Purchase price ($)" k="purchase_price" t="number" ph="232300" h />
+                {field('Purchase date', 'purchase_date', 'text', '2015', true)}
+                {field('Purchase price ($)', 'purchase_price', 'number', '232300', true)}
               </div>
 
               {/* Quick summary of existing data */}
@@ -338,12 +338,12 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
             return (
               <div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  <F l="Clear height (ft)" k="clear_height" t="number" ph="22" h />
-                  <F l="Doors (docks + drive-ins)" k="dock_doors" t="number" ph="4" h />
+                  {field('Clear height (ft)', 'clear_height', 'number', '22', true)}
+                  {field('Doors (docks + drive-ins)', 'dock_doors', 'number', '4', true)}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  <F l="Dist. to I-xx (mi)" k="distance_interstate" t="number" ph="2.0" h />
-                  <F l="Tenant demand (1-5)" k="tenant_demand" t="number" ph="3" h />
+                  {field('Dist. to I-xx (mi)', 'distance_interstate', 'number', '2.0', true)}
+                  {field('Tenant demand (1-5)', 'tenant_demand', 'number', '3', true)}
                 </div>
 
                 {/* Score breakdown with reasoning */}
@@ -469,7 +469,7 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
             <div style={{ height: 4, background: B.gray20, borderRadius: 2, marginBottom: 10 }}>
               <div style={{ width: `${Math.round(total / MAX_SCORE * 100)}%`, height: '100%', background: total >= 90 ? '#10B981' : total >= 80 ? B.green : total >= 60 ? B.amber : total >= 40 ? B.blue : B.red, borderRadius: 2 }} />
             </div>
-            {d.asking_price && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 2 }}>Ask: <span style={{ color: B.black, fontWeight: 600 }}>${Math.round(Number(d.asking_price)).toLocaleString()}</span></div>}
+            {d.asking_price && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 2 }}>Acq: <span style={{ color: B.black, fontWeight: 600 }}>${Math.round(Number(d.asking_price)).toLocaleString()}</span></div>}
             {d.building_sf && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 2 }}>SF: <span style={{ color: B.black, fontWeight: 600 }}>{Number(d.building_sf).toLocaleString()}</span></div>}
             {d.lot_acres && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 2 }}>Acres: <span style={{ color: B.black, fontWeight: 600 }}>{d.lot_acres}</span></div>}
             {d.cap_rate && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 2 }}>Cap: <span style={{ color: B.black, fontWeight: 600 }}>{d.cap_rate}%</span></div>}

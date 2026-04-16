@@ -87,7 +87,7 @@ export default function TableView({ deals, onClickDeal, onRefresh }) {
   }
 
   const exportCSV = () => {
-    const headers = ['Address','City','State','Market','Status','Type','Asking Price','SF','Acres','Cap Rate','Score','Grade','Owner','Phone','Email','Notes']
+    const headers = ['Address','City','State','Market','Status','Type','Latest Acq Price','SF','Acres','Cap Rate','Score','Grade','Owner','Phone','Email','Notes']
     const rows = sorted.map(d => {
       let total = 0, grade = 'D'; try { const r = scoreDeal(d); total = r.total || 0; grade = r.grade || 'D' } catch(e) {}
       return [d.address, d.city, d.state, d.market, d.status, d.property_type, d.asking_price || '', d.building_sf || '', d.lot_acres || '', d.cap_rate || '', total, grade, d.owner || '', d.owner_phone || '', d.owner_email || '', (d.notes || '').replace(/"/g, '""')]
