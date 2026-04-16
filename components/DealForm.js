@@ -296,7 +296,7 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
           )}
 
           {/* Underwrite tab */}
-          {tab === 'underwrite' && <UnderwriteTab deal={d} />}
+          {tab === 'underwrite' && <UnderwriteTab deal={d} onUpdated={(data) => setD(prev => ({ ...prev, underwrite_data: JSON.stringify(data) }))} />}
 
           {/* Documents tab */}
           {tab === 'documents' && deal.id && <DealDocuments dealId={deal.id} onDealUpdated={async () => {

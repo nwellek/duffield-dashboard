@@ -30,45 +30,46 @@ const IS = { width: '100%', padding: '6px 8px', border: `1px solid ${B.gray20}`,
 const LS = { fontSize: 10, color: B.gray, fontFamily: bf, marginBottom: 1, display: 'block' }
 const SH = { fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginBottom: 6, marginTop: 14, letterSpacing: 0.4 }
 
-export default function UnderwriteTab({ deal }) {
+export default function UnderwriteTab({ deal, onUpdated }) {
   const mkt = MARKET_BENCHMARKS[deal.market] || MARKET_BENCHMARKS._default
   const saved = (() => { try { return JSON.parse(deal.underwrite_data || '{}') } catch(e) { return {} } })()
+  const has = (k) => saved.hasOwnProperty(k) && saved[k] !== null && saved[k] !== undefined
 
   const [u, setU] = useState({
-    deal_type: saved.deal_type || 'building',
-    scenario: saved.scenario || 'in_place',
-    bldg_sf: saved.bldg_sf || deal.building_sf || '',
-    lot_acres: saved.lot_acres || deal.lot_acres || '',
-    ios_acres: saved.ios_acres || '',
-    purchase_price: saved.purchase_price || deal.asking_price || deal.purchase_price || '',
-    closing_pct: saved.closing_pct || '4.0',
-    bldg_rent_psf: saved.bldg_rent_psf || mkt.bldg_rent.toFixed(2),
-    yard_rent_acre_mo: saved.yard_rent_acre_mo || ((mkt.yard_rent || 3500) / 12).toFixed(0),
-    vacancy_pct: saved.vacancy_pct || '5',
-    rent_growth: saved.rent_growth || '3.0',
-    downtime_months: saved.downtime_months || '6',
-    abatement_months: saved.abatement_months || '2',
-    ti_psf: saved.ti_psf || '2.00',
-    lc_pct: saved.lc_pct || '6',
-    re_taxes: saved.re_taxes || '',
-    insurance: saved.insurance || '',
-    utilities: saved.utilities || '',
-    landscaping: saved.landscaping || '',
-    mgmt_pct: saved.mgmt_pct || '0',
-    other_expenses: saved.other_expenses || '',
-    capex_psf: saved.capex_psf || '1.00',
-    soft_costs: saved.soft_costs || '0',
-    hard_costs: saved.hard_costs || '0',
-    exit_cap: saved.exit_cap || (mkt.exit_cap || 8.0).toFixed(1),
-    hold_years: saved.hold_years || '4',
-    brokerage_pct: saved.brokerage_pct || '3',
-    lender: saved.lender || 'TBD',
-    ltv: saved.ltv || '65',
-    interest_rate: saved.interest_rate || '7.5',
-    rate_type: saved.rate_type || 'Fixed',
-    io_months: saved.io_months || '12',
-    amort_months: saved.amort_months || '240',
-    loan_closing_pct: saved.loan_closing_pct || '3',
+    deal_type: has('deal_type') ? saved.deal_type : 'building',
+    scenario: has('scenario') ? saved.scenario : 'in_place',
+    bldg_sf: has('bldg_sf') ? saved.bldg_sf : (deal.building_sf || ''),
+    lot_acres: has('lot_acres') ? saved.lot_acres : (deal.lot_acres || ''),
+    ios_acres: has('ios_acres') ? saved.ios_acres : '',
+    purchase_price: has('purchase_price') ? saved.purchase_price : (deal.asking_price || deal.purchase_price || ''),
+    closing_pct: has('closing_pct') ? saved.closing_pct : '4.0',
+    bldg_rent_psf: has('bldg_rent_psf') ? saved.bldg_rent_psf : mkt.bldg_rent.toFixed(2),
+    yard_rent_acre_mo: has('yard_rent_acre_mo') ? saved.yard_rent_acre_mo : ((mkt.yard_rent || 3500) / 12).toFixed(0),
+    vacancy_pct: has('vacancy_pct') ? saved.vacancy_pct : '5',
+    rent_growth: has('rent_growth') ? saved.rent_growth : '3.0',
+    downtime_months: has('downtime_months') ? saved.downtime_months : '6',
+    abatement_months: has('abatement_months') ? saved.abatement_months : '2',
+    ti_psf: has('ti_psf') ? saved.ti_psf : '2.00',
+    lc_pct: has('lc_pct') ? saved.lc_pct : '6',
+    re_taxes: has('re_taxes') ? saved.re_taxes : '',
+    insurance: has('insurance') ? saved.insurance : '',
+    utilities: has('utilities') ? saved.utilities : '',
+    landscaping: has('landscaping') ? saved.landscaping : '',
+    mgmt_pct: has('mgmt_pct') ? saved.mgmt_pct : '0',
+    other_expenses: has('other_expenses') ? saved.other_expenses : '',
+    capex_psf: has('capex_psf') ? saved.capex_psf : '1.00',
+    soft_costs: has('soft_costs') ? saved.soft_costs : '0',
+    hard_costs: has('hard_costs') ? saved.hard_costs : '0',
+    exit_cap: has('exit_cap') ? saved.exit_cap : (mkt.exit_cap || 8.0).toFixed(1),
+    hold_years: has('hold_years') ? saved.hold_years : '4',
+    brokerage_pct: has('brokerage_pct') ? saved.brokerage_pct : '3',
+    lender: has('lender') ? saved.lender : 'TBD',
+    ltv: has('ltv') ? saved.ltv : '65',
+    interest_rate: has('interest_rate') ? saved.interest_rate : '7.5',
+    rate_type: has('rate_type') ? saved.rate_type : 'Fixed',
+    io_months: has('io_months') ? saved.io_months : '12',
+    amort_months: has('amort_months') ? saved.amort_months : '240',
+    loan_closing_pct: has('loan_closing_pct') ? saved.loan_closing_pct : '3',
   })
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -86,9 +87,10 @@ export default function UnderwriteTab({ deal }) {
       await supabase.from('deals').update({ underwrite_data: JSON.stringify(data), updated_at: new Date().toISOString() }).eq('id', deal.id)
       setDirty(false)
       setLastSaved(new Date())
+      if (onUpdated) onUpdated(data)
     } catch (e) { console.error('Underwrite save error:', e) }
     setSaving(false)
-  }, [deal.id])
+  }, [deal.id, onUpdated])
 
   useEffect(() => {
     if (!dirty) return
