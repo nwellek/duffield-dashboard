@@ -254,12 +254,16 @@ const TAB_SLUGS = {
 }
 const SLUG_TO_TAB = Object.fromEntries(Object.entries(TAB_SLUGS).map(([k, v]) => [v, k]))
 
+function slugify(str) {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
 function getTabFromHash() {
   if (typeof window === 'undefined') return 'home'
   const raw = window.location.hash.replace(/^#\/?/, '')
   if (!raw) return 'home'
-  // owned deal route: owned/DEAL_ID
   if (raw.startsWith('owned/')) return 'owned_' + raw.replace('owned/', '')
+  if (raw.startsWith('deal/')) return '__deal__' + raw.replace('deal/', '')
   return SLUG_TO_TAB[raw] || 'home'
 }
 
@@ -268,6 +272,8 @@ function pushHash(tab) {
   let slug
   if (tab.startsWith('owned_')) {
     slug = 'owned/' + tab.replace('owned_', '')
+  } else if (tab.startsWith('__deal__')) {
+    slug = 'deal/' + tab.replace('__deal__', '')
   } else {
     slug = TAB_SLUGS[tab] ?? tab
   }
@@ -295,18 +301,49 @@ export default function Dashboard() {
     pushHash(tab)
   }, [])
 
+  // Wrap setEditing to also push deal URL
+  const openDeal = useCallback((deal) => {
+    setEditing(deal)
+    if (deal) {
+      const slug = slugify(deal.address || deal.id)
+      pushHash('__deal__' + slug)
+    }
+  }, [])
+
+  const closeDeal = useCallback(() => {
+    setEditing(null)
+    setShowNew(false)
+    // Go back to tracker
+    pushHash('tracker')
+    setActiveTabRaw('tracker')
+  }, [])
+
   // Read hash on mount + listen for back/forward
   useEffect(() => {
     const initial = getTabFromHash()
-    setActiveTabRaw(initial)
+    if (initial.startsWith('__deal__')) {
+      // We'll resolve the deal after data loads
+      setActiveTabRaw('tracker')
+    } else {
+      setActiveTabRaw(initial)
+    }
 
     const onPop = () => {
       const tab = getTabFromHash()
-      setActiveTabRaw(tab)
+      if (tab.startsWith('__deal__')) {
+        // Resolve deal slug against loaded deals
+        const dealSlug = tab.replace('__deal__', '')
+        const match = deals.find(d => slugify(d.address || d.id) === dealSlug)
+        if (match) { setEditing(match); setActiveTabRaw('tracker') }
+        else { setEditing(null); setActiveTabRaw('tracker') }
+      } else {
+        setEditing(null)
+        setActiveTabRaw(tab)
+      }
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [])
+  }, [deals])
 
   const fetchDeals = useCallback(async () => {
     // Supabase limits to 1000 rows per request, so paginate
@@ -328,6 +365,17 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => { fetchDeals(); fetchAlertCount() }, [fetchDeals, fetchAlertCount])
+
+  // Resolve deal URL after deals load
+  useEffect(() => {
+    if (deals.length === 0) return
+    const hash = getTabFromHash()
+    if (hash.startsWith('__deal__') && !editing) {
+      const dealSlug = hash.replace('__deal__', '')
+      const match = deals.find(d => slugify(d.address || d.id) === dealSlug)
+      if (match) { setEditing(match); setActiveTabRaw('tracker') }
+    }
+  }, [deals]) // eslint-disable-line react-hooks/exhaustive-deps
   const editingRef = useRef(editing)
   useEffect(() => { editingRef.current = editing }, [editing])
   useEffect(() => {
@@ -363,10 +411,10 @@ export default function Dashboard() {
       } catch (e) { /* geocode failed, non-critical */ }
     }
 
-    setEditing(null); setShowNew(false); fetchDeals()
+    setEditing(null); setShowNew(false); pushHash('tracker'); setActiveTabRaw('tracker'); fetchDeals()
   }
 
-  const deleteDeal = async (id) => { await supabase.from('deals').delete().eq('id', id); setEditing(null); fetchDeals() }
+  const deleteDeal = async (id) => { await supabase.from('deals').delete().eq('id', id); setEditing(null); pushHash('tracker'); setActiveTabRaw('tracker'); fetchDeals() }
 
   const ownedDeals = deals.filter(d => d.status === 'owned' || d.status === 'under_contract')
 
@@ -392,7 +440,7 @@ export default function Dashboard() {
             {isTracker && !editing && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{deals.length} properties tracked</div>}
           </div>
 
-          {!editing && !showNew && <SearchBar deals={deals} onSelect={d => setEditing(d)} />}
+          {!editing && !showNew && <SearchBar deals={deals} onSelect={d => openDeal(d)} />}
 
           {isTracker && !editing && !showNew && (
             <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
@@ -413,9 +461,9 @@ export default function Dashboard() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: B.gray, fontFamily: bf }}>Loading...</div>
         ) : editing && editing.status === 'owned' ? (
-          <OwnedDealView deal={editing} onBack={() => setEditing(null)} />
+          <OwnedDealView deal={editing} onBack={closeDeal} />
         ) : editing || showNew ? (
-          <DealForm deal={editing || emptyDeal()} onSave={saveDeal} onCancel={() => { setEditing(null); setShowNew(false) }} onDelete={deleteDeal} />
+          <DealForm deal={editing || emptyDeal()} onSave={saveDeal} onCancel={closeDeal} onDelete={deleteDeal} />
         ) : (
           <>
             {/* Tracker page with view toggle */}
@@ -438,12 +486,12 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {trackerView === 'table' && <TableView deals={deals} onClickDeal={setEditing} onRefresh={fetchDeals} />}
-                {trackerView === 'map' && <MapView deals={deals} onClickDeal={setEditing} />}
+                {trackerView === 'table' && <TableView deals={deals} onClickDeal={openDeal} onRefresh={fetchDeals} />}
+                {trackerView === 'map' && <MapView deals={deals} onClickDeal={openDeal} />}
               </>
             )}
 
-            {activeTab === 'home' && <HomePage deals={deals} setActiveTab={setActiveTab} onClickDeal={(d) => { setActiveTab('tracker'); setEditing(d) }} />}
+            {activeTab === 'home' && <HomePage deals={deals} setActiveTab={setActiveTab} onClickDeal={(d) => { setActiveTabRaw('tracker'); openDeal(d) }} />}
 
             {activeTab === 'brief' && (
               <DailyBriefTab deals={deals} />

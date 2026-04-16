@@ -19,7 +19,7 @@ function ScoreRow({ l, s, m }) {
   )
 }
 
-function SummaryView({ d, grade, total, g, col, scores, estYOC, isIOS }) {
+function SummaryView({ d, grade, total, g, col, scores, estYOC, isIOS, onChangeStatus }) {
   const sf = Number(d.building_sf) || 0
   const ac = Number(d.lot_acres) || 0
   const price = Number(d.asking_price) || 0
@@ -69,7 +69,16 @@ function SummaryView({ d, grade, total, g, col, scores, estYOC, isIOS }) {
           {sr('Asking Price', price ? fmt(price) : '—', true)}
           {sr('$/SF', psf ? '$' + psf.toFixed(0) : '—')}
           {sr('$/Acre', pac ? '$' + Math.round(pac).toLocaleString() : '—')}
-          {sr('Status', col ? col.label : d.status)}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: `1px solid ${B.gray10}`, fontSize: 12, fontFamily: bf }}>
+            <span style={{ color: B.gray }}>Status</span>
+            <select value={d.status} onChange={e => onChangeStatus(e.target.value)} style={{
+              border: `1px solid ${B.gray20}`, borderRadius: 3, padding: '2px 6px', fontSize: 12,
+              fontFamily: bf, fontWeight: 600, color: col ? col.color : B.black,
+              background: B.white, cursor: 'pointer', outline: 'none',
+            }}>
+              {COLUMNS.map(c => <option key={c.id} value={c.id} style={{ color: B.black }}>{c.label}</option>)}
+            </select>
+          </div>
           {sr('Source', d.source || '—')}
           <div style={{ fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginBottom: 4, marginTop: 10 }}>Contact</div>
           {sr('Owner', d.owner || '—')}
@@ -220,7 +229,7 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
         <div style={{ flex: '1 1 420px', minWidth: 300 }}>
 
           {/* Summary tab */}
-          {tab === 'summary' && <SummaryView d={d} grade={grade} total={total} g={g} col={col} scores={scores} estYOC={estYOC} isIOS={isIOS} />}
+          {tab === 'summary' && <SummaryView d={d} grade={grade} total={total} g={g} col={col} scores={scores} estYOC={estYOC} isIOS={isIOS} onChangeStatus={(v) => set('status', v)} />}
 
           {/* Details tab */}
           {tab === 'details' && (
