@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   if (!url && !pdf_base64) return res.status(400).json({ error: 'Provide url or pdf_base64' })
 
   try {
-    let requestBody = { model: 'claude-sonnet-4-5-20241022', max_tokens: 2000 }
+    let requestBody = { model: 'claude-sonnet-4-5-20250929', max_tokens: 2000 }
 
     if (url) {
       requestBody.messages = [{ role: 'user', content: `Extract deal data from this listing URL: ${url}\n\n${PROMPT}` }]
