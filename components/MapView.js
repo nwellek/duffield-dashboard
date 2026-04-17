@@ -20,12 +20,13 @@ export default function MapView({ deals, onClickDeal }) {
   const [geoMsg, setGeoMsg] = useState('')
   const [activities, setActivities] = useState([])
   const [newNote, setNewNote] = useState('')
+  const [showDead, setShowDead] = useState(false)
 
-  const activeDls = deals.filter(d => d.status !== 'dead')
+  const visibleDeals = showDead ? deals : deals.filter(d => d.status !== 'dead')
   const mc = {}
-  activeDls.forEach(d => { mc[d.market || 'Other'] = (mc[d.market || 'Other'] || 0) + 1 })
-  const geocoded = activeDls.filter(d => d.latitude && d.longitude && d.latitude !== 0).length
-  const ungeocoded = activeDls.filter(d => !d.latitude && d.address && d.city).length
+  visibleDeals.forEach(d => { mc[d.market || 'Other'] = (mc[d.market || 'Other'] || 0) + 1 })
+  const geocoded = visibleDeals.filter(d => d.latitude && d.longitude && d.latitude !== 0).length
+  const ungeocoded = visibleDeals.filter(d => !d.latitude && d.address && d.city).length
 
   const fetchAct = useCallback(async (id) => {
     if (!id) return
@@ -70,12 +71,12 @@ export default function MapView({ deals, onClickDeal }) {
     }
   }, [style])
 
-  // Markers — exclude dead deals, only show geocoded
+  // Markers
   useEffect(() => {
     if (!ready || !markers.current || !L) return
     markers.current.clearLayers()
-    const active = deals.filter(d => d.status !== 'dead')
-    const show = selMarket ? active.filter(d => d.market === selMarket) : active
+    const base = showDead ? deals : deals.filter(d => d.status !== 'dead')
+    const show = selMarket ? base.filter(d => d.market === selMarket) : base
 
     show.forEach(d => {
       let lat, lon, exact = false
@@ -117,7 +118,7 @@ export default function MapView({ deals, onClickDeal }) {
         markers.current.addLayer(c)
       })
     }
-  }, [ready, deals, selMarket, mc, fetchAct])
+  }, [ready, deals, selMarket, showDead, mc, fetchAct])
 
   const reset = () => { setSelMarket(null); setSelDeal(null); map.current?.setView([33, -98], 5, { animate: true }) }
 
@@ -156,8 +157,11 @@ export default function MapView({ deals, onClickDeal }) {
           {geocoding ? 'Working...' : 'Geocode ' + ungeocoded}
         </button>
         {geoMsg && <span style={{ fontSize: 10, color: B.gray, fontFamily: bf }}>{geoMsg}</span>}
+        <button onClick={() => setShowDead(!showDead)} style={{ padding: '4px 10px', borderRadius: 3, fontSize: 10, fontFamily: hf, border: `1px solid ${showDead ? B.red : B.gray20}`, background: showDead ? B.redLight : B.white, color: showDead ? B.red : B.gray, cursor: 'pointer', fontWeight: showDead ? 700 : 400, marginLeft: 6 }}>
+          {showDead ? '● Dead shown' : 'Show dead'} ({deals.filter(d => d.status === 'dead').length})
+        </button>
         {selMarket && <span style={{ fontSize: 12, color: B.blue, fontFamily: hf, fontWeight: 700, marginLeft: 6 }}>{selMarket} <button onClick={() => { setSelMarket(null); map.current?.setView([33, -98], 5) }} style={{ background: 'none', border: 'none', color: B.gray, cursor: 'pointer', fontSize: 13 }}>x</button></span>}
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: B.gray60, fontFamily: bf }}>{geocoded} exact / {activeDls.length} active ({deals.filter(d => d.status === 'dead').length} dead hidden)</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: B.gray60, fontFamily: bf }}>{geocoded} geocoded / {visibleDeals.length} shown</span>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 6 }}>
@@ -171,7 +175,7 @@ export default function MapView({ deals, onClickDeal }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div ref={mapRef} style={{ width: '100%', height: 550, borderRadius: 4, border: '1px solid ' + B.gray20 }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-            {COLUMNS.filter(c => c.id !== 'dead').map(c => { const n = deals.filter(d => d.status === c.id).length; if (!n) return null; return <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: B.gray, fontFamily: bf }}><div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />{c.label} ({n})</div> })}
+            {COLUMNS.filter(c => showDead || c.id !== 'dead').map(c => { const n = deals.filter(d => d.status === c.id).length; if (!n) return null; return <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: B.gray, fontFamily: bf }}><div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />{c.label} ({n})</div> })}
             <span style={{ fontSize: 10, color: B.gray60, fontFamily: bf, marginLeft: 'auto' }}>Click dot to view. Click market circle to zoom.</span>
           </div>
         </div>
