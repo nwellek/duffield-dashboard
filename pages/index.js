@@ -411,6 +411,55 @@ export default function Dashboard() {
       } catch (e) { /* geocode failed, non-critical */ }
     }
 
+    // Auto-sync contacts to CRM
+    try {
+      const dealAddr = cleaned.address ? `${cleaned.address}, ${cleaned.city || ''}` : ''
+      // Broker / contact
+      if (cleaned.contact_name && cleaned.contact_name.trim()) {
+        const name = cleaned.contact_name.trim()
+        const email = (cleaned.contact_method || '').includes('@') ? cleaned.contact_method.trim() : ''
+        const phone = (cleaned.contact_method || '').match(/[\d\(\)\-\+\s]{7,}/) ? cleaned.contact_method.trim() : ''
+        // Check if exists by email first, then by name
+        let exists = false
+        if (email) {
+          const { data } = await supabase.from('contacts').select('id').eq('email', email).limit(1)
+          if (data && data.length > 0) exists = true
+        }
+        if (!exists) {
+          const { data } = await supabase.from('contacts').select('id').eq('name', name).limit(1)
+          if (data && data.length > 0) exists = true
+        }
+        if (!exists) {
+          await supabase.from('contacts').insert({
+            name, email: email || null, phone: phone || null,
+            category: 'Broker', notes: dealAddr ? `Deal: ${dealAddr}` : '',
+          })
+        }
+      }
+      // Owner
+      if (cleaned.owner && cleaned.owner.trim()) {
+        const name = cleaned.owner.trim()
+        const email = (cleaned.owner_email || '').trim() || null
+        const phone = (cleaned.owner_phone || '').trim() || null
+        let exists = false
+        if (email) {
+          const { data } = await supabase.from('contacts').select('id').eq('email', email).limit(1)
+          if (data && data.length > 0) exists = true
+        }
+        if (!exists) {
+          const { data } = await supabase.from('contacts').select('id').eq('name', name).limit(1)
+          if (data && data.length > 0) exists = true
+        }
+        if (!exists) {
+          await supabase.from('contacts').insert({
+            name, email, phone,
+            category: 'Seller', notes: dealAddr ? `Deal: ${dealAddr}` : '',
+            city: cleaned.city && cleaned.state ? `${cleaned.city}, ${cleaned.state}` : '',
+          })
+        }
+      }
+    } catch (e) { /* CRM sync failed, non-critical */ }
+
     setEditing(null); setShowNew(false); pushHash('tracker'); setActiveTabRaw('tracker'); fetchDeals()
   }
 
