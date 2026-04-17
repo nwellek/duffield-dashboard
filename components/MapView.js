@@ -232,7 +232,7 @@ export default function MapView({ deals, onClickDeal }) {
             )}
 
             <div style={{ marginTop: 8, fontSize: 9, color: B.gray60, fontFamily: bf }}>
-              {selDeal.latitude && selDeal.latitude !== 0 ? 'Exact: ' + Number(selDeal.latitude).toFixed(4) + ', ' + Number(selDeal.longitude).toFixed(4) : 'Not geocoded yet'}
+              {selDeal.latitude && selDeal.latitude !== 0 ? 'Exact: ' + Number(selDeal.latitude).toFixed(7) + ', ' + Number(selDeal.longitude).toFixed(7) : 'Not geocoded yet'}
             </div>
           </div>
         )}
