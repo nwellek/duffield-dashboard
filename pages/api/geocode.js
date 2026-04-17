@@ -7,8 +7,8 @@ const supabase = createClient(
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
-// Same market coords as brand.js — used as instant fallback
-const MARKET_COORDS = {
+// Market coords fallback
+const MC = {
   'Laredo TX': [27.5,-99.5], 'McAllen TX': [26.2,-98.2], 'Brownsville TX': [25.9,-97.5],
   'El Paso TX': [31.8,-106.4], 'Nogales AZ': [31.34,-110.94], 'Phoenix AZ': [33.45,-112.07],
   'Louisville KY': [38.25,-85.76], 'Lumberton NC': [34.62,-79.0],
@@ -25,29 +25,44 @@ const MARKET_COORDS = {
   'Youngstown OH': [41.10,-80.65], 'Winston-Salem NC': [36.10,-80.24],
 }
 
-async function geocodeAddress(address, city, state) {
+// US Census Geocoder — free, no API key, accurate for US addresses
+async function censusgeocode(address, city, state) {
   try {
-    const structUrl = `https://nominatim.openstreetmap.org/search?street=${encodeURIComponent(address)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state || '')}&country=US&format=json&limit=1`
-    const res1 = await fetch(structUrl, { headers: { 'User-Agent': 'DuffieldDashboard/1.0' } })
-    const data1 = await res1.json()
-    if (data1 && data1.length > 0) {
-      return { lat: parseFloat(data1[0].lat), lon: parseFloat(data1[0].lon), exact: true }
+    const street = encodeURIComponent(address)
+    const c = encodeURIComponent(city)
+    const s = encodeURIComponent(state || '')
+    const url = `https://geocoding.geo.census.gov/geocoder/locations/address?street=${street}&city=${c}&state=${s}&benchmark=Public_AR_Current&format=json`
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    const data = await res.json()
+    const matches = data?.result?.addressMatches
+    if (matches && matches.length > 0) {
+      const coords = matches[0].coordinates
+      return { lat: coords.y, lon: coords.x, source: 'census' }
     }
+  } catch (e) { /* census geocoder failed */ }
+  return null
+}
+
+// Nominatim fallback
+async function nominatimGeocode(address, city, state) {
+  try {
     const query = `${address}, ${city}${state ? ', ' + state : ''}, USA`
-    const res2 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=us`, { headers: { 'User-Agent': 'DuffieldDashboard/1.0' } })
-    const data2 = await res2.json()
-    if (data2 && data2.length > 0) {
-      return { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon), exact: true }
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=us`, {
+      headers: { 'User-Agent': 'DuffieldDashboard/1.0' },
+      signal: AbortSignal.timeout(5000)
+    })
+    const data = await res.json()
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), source: 'nominatim' }
     }
-  } catch (e) { /* geocode failed */ }
+  } catch (e) { /* nominatim failed */ }
   return null
 }
 
 export default async function handler(req, res) {
-  const mode = req.query?.mode || 'smart' // 'smart' = try Nominatim then fallback, 'fallback' = market coords only
+  const mode = req.query?.mode || 'smart' // smart, fallback
   const limit = Math.min(parseInt(req.query?.limit) || 25, 200)
   
-  // Get deals needing geocoding — exclude ones we already failed (marked with lat=0.0001)
   const { data: deals } = await supabase.from('deals').select('id, address, city, state, market')
     .or('latitude.is.null,latitude.eq.0').not('address', 'is', null).not('city', 'is', null).limit(limit)
 
@@ -59,39 +74,51 @@ export default async function handler(req, res) {
 
   const results = []
   for (const deal of deals) {
-    let geo = null
+    if (mode === 'fallback') {
+      // Instant market-coords fallback
+      const mc = MC[deal.market]
+      if (mc) {
+        const jlat = mc[0] + (Math.random() - 0.5) * 0.04
+        const jlon = mc[1] + (Math.random() - 0.5) * 0.04
+        await supabase.from('deals').update({ latitude: jlat, longitude: jlon }).eq('id', deal.id)
+        results.push({ id: deal.id, status: 'market_fallback' })
+      } else {
+        await supabase.from('deals').update({ latitude: 0.0001, longitude: 0.0001 }).eq('id', deal.id)
+        results.push({ id: deal.id, status: 'no_coords' })
+      }
+      continue
+    }
 
-    // Try Nominatim if in smart mode
-    if (mode === 'smart') {
-      geo = await geocodeAddress(deal.address, deal.city, deal.state)
-      if (geo) {
-        await supabase.from('deals').update({ latitude: geo.lat, longitude: geo.lon }).eq('id', deal.id)
-        results.push({ id: deal.id, status: 'exact' })
-        await sleep(1100) // Rate limit
-        continue
+    // Smart mode: Census first → Nominatim → market fallback
+    let geo = await censusgeocode(deal.address, deal.city, deal.state)
+    if (!geo) {
+      geo = await nominatimGeocode(deal.address, deal.city, deal.state)
+      if (geo) await sleep(1100) // Rate limit Nominatim
+    }
+
+    if (geo) {
+      await supabase.from('deals').update({ latitude: geo.lat, longitude: geo.lon }).eq('id', deal.id)
+      results.push({ id: deal.id, status: geo.source })
+    } else {
+      // Market coords fallback
+      const mc = MC[deal.market]
+      if (mc) {
+        const jlat = mc[0] + (Math.random() - 0.5) * 0.04
+        const jlon = mc[1] + (Math.random() - 0.5) * 0.04
+        await supabase.from('deals').update({ latitude: jlat, longitude: jlon }).eq('id', deal.id)
+        results.push({ id: deal.id, status: 'market_fallback' })
+      } else {
+        await supabase.from('deals').update({ latitude: 0.0001, longitude: 0.0001 }).eq('id', deal.id)
+        results.push({ id: deal.id, status: 'no_coords' })
       }
     }
-
-    // Fallback: use market coords with small jitter
-    const mc = MARKET_COORDS[deal.market]
-    if (mc) {
-      const jlat = mc[0] + (Math.random() - 0.5) * 0.04
-      const jlon = mc[1] + (Math.random() - 0.5) * 0.04
-      await supabase.from('deals').update({ latitude: jlat, longitude: jlon }).eq('id', deal.id)
-      results.push({ id: deal.id, status: 'market_fallback' })
-    } else {
-      // No market coords either — mark with 0.0001 so we don't retry
-      await supabase.from('deals').update({ latitude: 0.0001, longitude: 0.0001 }).eq('id', deal.id)
-      results.push({ id: deal.id, status: 'no_coords' })
-    }
-
-    if (mode === 'smart') await sleep(1100)
   }
 
   const { count: remaining } = await supabase.from('deals').select('*', { count: 'exact', head: true })
     .or('latitude.is.null,latitude.eq.0').not('address', 'is', null)
 
-  const exact = results.filter(r => r.status === 'exact').length
+  const census = results.filter(r => r.status === 'census').length
+  const nominatim = results.filter(r => r.status === 'nominatim').length
   const fallback = results.filter(r => r.status === 'market_fallback').length
-  return res.status(200).json({ processed: results.length, exact, fallback, remaining: remaining || 0 })
+  return res.status(200).json({ processed: results.length, census, nominatim, fallback, remaining: remaining || 0 })
 }

@@ -398,13 +398,18 @@ export default function Dashboard() {
     if (d.id) { await supabase.from('deals').update(cleaned).eq('id', d.id) }
     else { delete cleaned.id; const { data } = await supabase.from('deals').insert(cleaned).select(); if (data?.[0]) cleaned.id = data[0].id }
 
-    // Auto-geocode if address exists but no lat/long
+    // Auto-geocode if address exists but no lat/long — use Census Geocoder (free, accurate)
     if (cleaned.address && cleaned.city && (!cleaned.latitude || cleaned.latitude === 0)) {
       try {
-        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?street=${encodeURIComponent(cleaned.address)}&city=${encodeURIComponent(cleaned.city)}&state=${encodeURIComponent(cleaned.state || '')}&country=US&format=json&limit=1`, { headers: { 'User-Agent': 'DuffieldDashboard/1.0' } })
+        const street = encodeURIComponent(cleaned.address)
+        const city = encodeURIComponent(cleaned.city)
+        const state = encodeURIComponent(cleaned.state || '')
+        const censusUrl = `https://geocoding.geo.census.gov/geocoder/locations/address?street=${street}&city=${city}&state=${state}&benchmark=Public_AR_Current&format=json`
+        const geoRes = await fetch(censusUrl)
         const geoData = await geoRes.json()
-        if (geoData?.[0]) {
-          const lat = parseFloat(geoData[0].lat), lon = parseFloat(geoData[0].lon)
+        const matches = geoData?.result?.addressMatches
+        if (matches && matches.length > 0) {
+          const lat = matches[0].coordinates.y, lon = matches[0].coordinates.x
           const updateId = d.id || cleaned.id
           if (updateId) await supabase.from('deals').update({ latitude: lat, longitude: lon }).eq('id', updateId)
         }
