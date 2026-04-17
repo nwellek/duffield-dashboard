@@ -20,7 +20,7 @@ export default function MapView({ deals, onClickDeal }) {
   const [geoMsg, setGeoMsg] = useState('')
   const [activities, setActivities] = useState([])
   const [newNote, setNewNote] = useState('')
-  const [showDead, setShowDead] = useState(false)
+  const [showDead, setShowDead] = useState(true)
 
   const visibleDeals = showDead ? deals : deals.filter(d => d.status !== 'dead')
   const mc = {}
@@ -173,7 +173,7 @@ export default function MapView({ deals, onClickDeal }) {
 
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div ref={mapRef} style={{ width: '100%', height: 550, borderRadius: 4, border: '1px solid ' + B.gray20 }} />
+          <div ref={mapRef} style={{ width: '100%', height: 700, borderRadius: 4, border: '1px solid ' + B.gray20 }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
             {COLUMNS.filter(c => showDead || c.id !== 'dead').map(c => { const n = deals.filter(d => d.status === c.id).length; if (!n) return null; return <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: B.gray, fontFamily: bf }}><div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />{c.label} ({n})</div> })}
             <span style={{ fontSize: 10, color: B.gray60, fontFamily: bf, marginLeft: 'auto' }}>Click dot to view. Click market circle to zoom.</span>
