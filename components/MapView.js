@@ -21,10 +21,11 @@ export default function MapView({ deals, onClickDeal }) {
   const [activities, setActivities] = useState([])
   const [newNote, setNewNote] = useState('')
 
+  const activeDls = deals.filter(d => d.status !== 'dead')
   const mc = {}
-  deals.forEach(d => { mc[d.market || 'Other'] = (mc[d.market || 'Other'] || 0) + 1 })
-  const geocoded = deals.filter(d => d.latitude && d.longitude && d.latitude !== 0).length
-  const ungeocoded = deals.filter(d => !d.latitude && d.address && d.city).length
+  activeDls.forEach(d => { mc[d.market || 'Other'] = (mc[d.market || 'Other'] || 0) + 1 })
+  const geocoded = activeDls.filter(d => d.latitude && d.longitude && d.latitude !== 0).length
+  const ungeocoded = activeDls.filter(d => !d.latitude && d.address && d.city).length
 
   const fetchAct = useCallback(async (id) => {
     if (!id) return
@@ -69,21 +70,23 @@ export default function MapView({ deals, onClickDeal }) {
     }
   }, [style])
 
-  // Markers
+  // Markers — exclude dead deals, only show geocoded
   useEffect(() => {
     if (!ready || !markers.current || !L) return
     markers.current.clearLayers()
-    const show = selMarket ? deals.filter(d => d.market === selMarket) : deals
+    const active = deals.filter(d => d.status !== 'dead')
+    const show = selMarket ? active.filter(d => d.market === selMarket) : active
 
     show.forEach(d => {
       let lat, lon, exact = false
       if (d.latitude && d.longitude && d.latitude !== 0 && d.longitude !== 0) {
         lat = d.latitude; lon = d.longitude; exact = true
       } else {
+        // Non-geocoded: place near market center with jitter, smaller + faded
         const co = MARKET_COORDS[d.market]
         if (!co) return
-        lat = co[0] + (Math.random() - 0.5) * 0.02
-        lon = co[1] + (Math.random() - 0.5) * 0.02
+        lat = co[0] + (Math.random() - 0.5) * 0.008
+        lon = co[1] + (Math.random() - 0.5) * 0.008
       }
 
       const color = SC[d.status] || B.gray
@@ -154,7 +157,7 @@ export default function MapView({ deals, onClickDeal }) {
         </button>
         {geoMsg && <span style={{ fontSize: 10, color: B.gray, fontFamily: bf }}>{geoMsg}</span>}
         {selMarket && <span style={{ fontSize: 12, color: B.blue, fontFamily: hf, fontWeight: 700, marginLeft: 6 }}>{selMarket} <button onClick={() => { setSelMarket(null); map.current?.setView([33, -98], 5) }} style={{ background: 'none', border: 'none', color: B.gray, cursor: 'pointer', fontSize: 13 }}>x</button></span>}
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: B.gray60, fontFamily: bf }}>{geocoded} exact / {deals.length} total</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: B.gray60, fontFamily: bf }}>{geocoded} exact / {activeDls.length} active ({deals.filter(d => d.status === 'dead').length} dead hidden)</span>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 6 }}>
@@ -168,7 +171,7 @@ export default function MapView({ deals, onClickDeal }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div ref={mapRef} style={{ width: '100%', height: 550, borderRadius: 4, border: '1px solid ' + B.gray20 }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-            {COLUMNS.map(c => { const n = deals.filter(d => d.status === c.id).length; if (!n) return null; return <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: B.gray, fontFamily: bf }}><div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />{c.label} ({n})</div> })}
+            {COLUMNS.filter(c => c.id !== 'dead').map(c => { const n = deals.filter(d => d.status === c.id).length; if (!n) return null; return <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: B.gray, fontFamily: bf }}><div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />{c.label} ({n})</div> })}
             <span style={{ fontSize: 10, color: B.gray60, fontFamily: bf, marginLeft: 'auto' }}>Click dot to view. Click market circle to zoom.</span>
           </div>
         </div>
