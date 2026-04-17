@@ -15,7 +15,7 @@ export default function MapView({ deals, onClickDeal }) {
   const [selDeal, setSelDeal] = useState(null)
   const [selMarket, setSelMarket] = useState(null)
   const [ready, setReady] = useState(false)
-  const [style, setStyle] = useState('satellite')
+  const [style, setStyle] = useState('hybrid')
   const [geocoding, setGeocoding] = useState(false)
   const [geoMsg, setGeoMsg] = useState('')
   const [activities, setActivities] = useState([])
