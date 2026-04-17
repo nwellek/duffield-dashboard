@@ -465,11 +465,12 @@ export default function UnderwriteTab({ deal, onUpdated }) {
                 {R('Revenue', r => r.rev, false)}
                 {c.isLeaseUp && R('Abatements', r => -r.abate, false, x => x < 0 ? B.red : undefined)}
                 {c.nonReimb > 0 && R('Non-Reimb Expenses', r => -r.exp, false, x => x < 0 ? B.red : undefined)}
-                {R('NOI', r => r.noi, true)}
+                {(c.nonReimb > 0 || c.isLeaseUp) && R('NOI', r => r.noi, true)}
+                {c.nonReimb === 0 && !c.isLeaseUp && R('NOI (all NNN)', r => r.noi, true)}
                 {div}
                 {R('Acquisition', r => r.acq, false, x => x < 0 ? B.red : undefined)}
                 {c.totalDev > 0 && R('Development', r => r.dev, false, x => x < 0 ? B.red : undefined)}
-                {R('Cap Reserves', r => r.capRes, false, x => x < 0 ? B.red : undefined)}
+                {c.capex > 0 && R('Cap Reserves', r => r.capRes, false, x => x < 0 ? B.red : undefined)}
                 {R('Sale Proceeds', r => r.exit, false, x => x > 0 ? '#065F46' : undefined)}
                 {R('Unlevered CF', r => r.unlevCF, true, x => x >= 0 ? '#065F46' : B.red)}
                 {div}
