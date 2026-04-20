@@ -1,4 +1,4 @@
-export const config = { api: { bodyParser: { sizeLimit: '20mb' } } }
+export const config = { api: { bodyParser: { sizeLimit: '1mb' }, maxDuration: 60 } }
 
 const PROMPT = `Read this commercial real estate document and extract key information. Return ONLY valid JSON with no markdown backticks:
 {
@@ -40,10 +40,19 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
 
-  const { pdf_base64, filename, doc_id } = req.body
-  if (!pdf_base64) return res.status(400).json({ error: 'No PDF provided' })
+  const { pdf_base64, pdf_url, filename, doc_id } = req.body
+  if (!pdf_base64 && !pdf_url) return res.status(400).json({ error: 'Provide pdf_base64 or pdf_url' })
 
   try {
+    // Get base64 data — either passed directly or downloaded from storage URL
+    let pdfData = pdf_base64
+    if (!pdfData && pdf_url) {
+      const pdfResp = await fetch(pdf_url)
+      if (!pdfResp.ok) return res.status(500).json({ error: 'Failed to download PDF: ' + pdfResp.status })
+      const buffer = Buffer.from(await pdfResp.arrayBuffer())
+      pdfData = buffer.toString('base64')
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -57,7 +66,7 @@ export default async function handler(req, res) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf_base64 } },
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfData } },
             { type: 'text', text: `Filename: ${filename || 'document.pdf'}\n\n${PROMPT}` },
           ],
         }],

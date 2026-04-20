@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { B, hf, bf, COLUMNS, MARKETS, PTYPES, SCORING_PARAMS, MAX_SCORE, scoreDeal, gradeColor, fmt, Badge } from '../lib/brand'
 import UnderwriteTab from './UnderwriteTab'
 import DealDocuments from './DealDocuments'
+import OwnerContactTab from './OwnerContactTab'
 
 // Score row for v2.1 breakdown
 function ScoreRow({ l, s, m }) {
@@ -258,48 +259,14 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
 
           {/* Owner tab */}
           {tab === 'owner' && (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, marginBottom: 8, fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Property owner</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{field('Owner name', 'owner', 'text', 'Mason Ronald A')}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                {field('Phone', 'owner_phone', 'text', '(520) 980-5509', true)}
-                {field('Email', 'owner_email', 'text', 'owner@company.com', true)}
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                {field('Owner address', 'owner_address', 'text', '123 Main St, City, ST 12345')}
-              </div>
-
-              <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, margin: '16px 0 8px', fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Broker / contact</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                {field('Contact name', 'contact_name', 'text', 'Nathan Mosley, Highwoods', true)}
-                {field('Contact method', 'contact_method', 'text', 'email or phone', true)}
-              </div>
-
-              <div style={{ fontSize: 12, fontWeight: 700, color: B.blue, margin: '16px 0 8px', fontFamily: hf, textTransform: 'uppercase', letterSpacing: 0.4 }}>Sale history</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                {field('Purchase date', 'purchase_date', 'text', '2015', true)}
-                {field('Purchase price ($)', 'purchase_price', 'number', '232300', true)}
-              </div>
-
-              {/* Quick summary of existing data */}
-              {(d.owner || d.owner_phone || d.owner_email) && (
-                <div style={{ background: B.blue05, borderRadius: 4, padding: 12, border: `1px solid ${B.blue20}`, marginTop: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginBottom: 6 }}>Quick reference</div>
-                  {d.owner && <div style={{ fontSize: 12, fontFamily: bf, marginBottom: 2 }}><span style={{ color: B.gray }}>Owner:</span> <span style={{ color: B.black, fontWeight: 600 }}>{d.owner}</span></div>}
-                  {d.owner_phone && <div style={{ fontSize: 12, fontFamily: bf, marginBottom: 2 }}><span style={{ color: B.gray }}>Phone:</span> <a href={`tel:${d.owner_phone}`} style={{ color: B.blue, textDecoration: 'none' }}>{d.owner_phone}</a></div>}
-                  {d.owner_email && <div style={{ fontSize: 12, fontFamily: bf, marginBottom: 2 }}><span style={{ color: B.gray }}>Email:</span> <a href={`mailto:${d.owner_email}`} style={{ color: B.blue, textDecoration: 'none' }}>{d.owner_email}</a></div>}
-                  {d.owner_address && <div style={{ fontSize: 12, fontFamily: bf, marginBottom: 2 }}><span style={{ color: B.gray }}>Addr:</span> {d.owner_address}</div>}
-                  {d.contact_name && <div style={{ fontSize: 12, fontFamily: bf, marginBottom: 2 }}><span style={{ color: B.gray }}>Contact:</span> {d.contact_name}</div>}
-                </div>
-              )}
-            </div>
+            <OwnerContactTab d={d} set={set} is={is} ls={ls} field={field} />
           )}
 
           {/* Underwrite tab */}
           {tab === 'underwrite' && <UnderwriteTab deal={d} onUpdated={(data) => setD(prev => ({ ...prev, underwrite_data: JSON.stringify(data) }))} />}
 
           {/* Documents tab */}
-          {tab === 'documents' && deal.id && <DealDocuments dealId={deal.id} onDealUpdated={async () => {
+          {tab === 'documents' && deal.id && <DealDocuments dealId={deal.id} deal={d} onDealUpdated={async () => {
             const { data } = await supabase.from('deals').select('*').eq('id', deal.id).single()
             if (data) setD(data)
           }} />}

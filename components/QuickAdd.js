@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { supabase } from '../lib/supabase'
 import { B, hf, bf, scoreDeal, gradeColor, fmt, Badge, MAX_SCORE } from '../lib/brand'
 
 export default function QuickAdd({ onClose, onDealCreated }) {
@@ -29,20 +30,29 @@ export default function QuickAdd({ onClose, onDealCreated }) {
     if (!pdfFile) return
     setLoading(true); setError(''); setResult(null)
     try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result.split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(pdfFile)
-      })
+      // Step 1: Upload PDF to Supabase Storage (temp folder) to avoid Vercel body size limits
+      const tempPath = `temp-ingest/${Date.now()}_${pdfFile.name}`
+      const { error: uploadErr } = await supabase.storage.from('deal-oms').upload(tempPath, pdfFile, { contentType: 'application/pdf', upsert: true })
+      if (uploadErr) { setError('Upload failed: ' + uploadErr.message); setLoading(false); return }
+
+      const { data: urlData } = supabase.storage.from('deal-oms').getPublicUrl(tempPath)
+      const storageUrl = urlData?.publicUrl
+
+      // Step 2: Send storage URL to API (small JSON body, no base64)
       const res = await fetch('/api/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdf_base64: base64, pdf_name: pdfFile.name }),
+        body: JSON.stringify({ pdf_storage_url: storageUrl, pdf_storage_path: tempPath, pdf_name: pdfFile.name }),
       })
-      let data; try { data = await res.json() } catch(e) { setError('Server error: ' + await res.text().catch(() => res.status)); setLoading(false); return }
-      if (res.ok) { setResult(data); if (onDealCreated) onDealCreated() }
-      else setError(data.error + (data.raw ? ' | Raw: ' + data.raw.slice(0,200) : '') + (data.debug ? ' | Debug: ' + data.debug : ''))
+      const responseText = await res.text()
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`
+        try { const errJson = JSON.parse(responseText); errMsg = errJson.error || errMsg } catch(e) { errMsg += ': ' + responseText.slice(0, 200) }
+        setError(errMsg); setLoading(false); return
+      }
+      let data
+      try { data = JSON.parse(responseText) } catch(e) { setError('Invalid response: ' + responseText.slice(0, 200)); setLoading(false); return }
+      if (data) { setResult(data); if (onDealCreated) onDealCreated() }
     } catch (e) { setError(e.message) }
     setLoading(false)
   }

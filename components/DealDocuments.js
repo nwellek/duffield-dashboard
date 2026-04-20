@@ -5,7 +5,25 @@ import { B, hf, bf, Badge } from '../lib/brand'
 const DOC_TYPES = ['LOI', 'PSA', 'Lease', 'Loan', 'Insurance', 'Inspection', 'Appraisal', 'Survey', 'Title', 'Environmental', 'Tax', 'OM', 'Invoice', 'Legal', 'Other']
 const DT_COLORS = { LOI: '#F59E0B', PSA: '#1C4587', Lease: '#10B981', Loan: '#8B5CF6', Insurance: '#6366F1', Inspection: '#14B8A6', OM: '#059669', Invoice: '#EF4444', Legal: '#6B7280', Other: '#9CA3AF' }
 
-// Clean a numeric value — strip $, commas, spaces
+const FIELD_LABELS = {
+  asking_price: 'Asking Price',
+  building_sf: 'Building SF',
+  lot_acres: 'Lot Acres',
+  clear_height: 'Clear Height (ft)',
+  dock_doors: 'Dock Doors',
+  cap_rate: 'Cap Rate (%)',
+  zoning: 'Zoning',
+  property_type: 'Property Type',
+  owner: 'Owner',
+  contact_name: 'Contact Name',
+  contact_method: 'Contact Method',
+  address: 'Address',
+  city: 'City',
+  state: 'State',
+  year_built: 'Year Built',
+  price_per_sf: 'Price/SF',
+}
+
 function cleanNum(v) {
   if (v === null || v === undefined || v === '') return null
   if (typeof v === 'number') return v
@@ -14,13 +32,23 @@ function cleanNum(v) {
   return isNaN(n) ? null : n
 }
 
-export default function DealDocuments({ dealId, onDealUpdated }) {
+function formatVal(k, v) {
+  if (v === null || v === undefined) return '—'
+  if (['asking_price', 'price_per_sf'].includes(k) && typeof v === 'number') return '$' + v.toLocaleString()
+  if (k === 'building_sf' && typeof v === 'number') return v.toLocaleString() + ' SF'
+  if (k === 'lot_acres') return v + ' acres'
+  if (k === 'clear_height') return v + ' ft'
+  if (k === 'cap_rate') return v + '%'
+  return String(v)
+}
+
+export default function DealDocuments({ dealId, deal, onDealUpdated }) {
   const [docs, setDocs] = useState([])
   const [uploading, setUploading] = useState(false)
-  const [reading, setReading] = useState(null) // doc id currently being read
+  const [reading, setReading] = useState(null)
   const [readingAll, setReadingAll] = useState(false)
   const [expanded, setExpanded] = useState(null)
-  const [pendingUpdate, setPendingUpdate] = useState(null)
+  const [pendingFields, setPendingFields] = useState(null)
 
   const fetchDocs = useCallback(async () => {
     if (!dealId) return
@@ -29,7 +57,6 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
   }, [dealId])
   useEffect(() => { fetchDocs() }, [fetchDocs])
 
-  // ── UPLOAD (store only, no AI read) ──
   const uploadFile = async (file) => {
     if (!file || !dealId) return
     setUploading(true)
@@ -37,11 +64,8 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
       const filePath = `${dealId}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('deal-oms').upload(filePath, file, { upsert: true })
       if (uploadError) { alert('Upload failed: ' + uploadError.message); setUploading(false); return }
-
       const { data: urlData } = supabase.storage.from('deal-oms').getPublicUrl(filePath)
       const fileUrl = urlData?.publicUrl || filePath
-
-      // Guess doc type from filename
       const nameLower = file.name.toLowerCase()
       let docType = 'Other'
       if (nameLower.includes('loi')) docType = 'LOI'
@@ -57,66 +81,52 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
       else if (nameLower.includes('om') || nameLower.includes('memo') || nameLower.includes('offering')) docType = 'OM'
       else if (nameLower.includes('invoice')) docType = 'Invoice'
       else if (nameLower.includes('legal') || nameLower.includes('agreement') || nameLower.includes('contract')) docType = 'Legal'
-
-      await supabase.from('deal_documents').insert({
-        deal_id: dealId, filename: file.name, file_url: fileUrl,
-        file_size: file.size, doc_type: docType,
-      })
+      await supabase.from('deal_documents').insert({ deal_id: dealId, filename: file.name, file_url: fileUrl, file_size: file.size, doc_type: docType })
       fetchDocs()
     } catch (e) { alert('Error: ' + e.message) }
     setUploading(false)
   }
 
-  // ── AI READ (per document) ──
   const aiReadDoc = async (doc) => {
     if (!doc.file_url || reading) return
     const ext = doc.filename.split('.').pop().toLowerCase()
     if (ext !== 'pdf') { alert('AI read only works on PDFs'); return }
-
     setReading(doc.id)
     try {
-      // Fetch the PDF from storage
-      const resp = await fetch(doc.file_url)
-      if (!resp.ok) { alert('Could not fetch file'); setReading(null); return }
-      const blob = await resp.blob()
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result.split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
-
+      // Pass the storage URL to the API — it downloads server-side (avoids Vercel body size limit)
       const res = await fetch('/api/doc-read', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdf_base64: base64, filename: doc.filename, doc_id: doc.id }),
+        body: JSON.stringify({ pdf_url: doc.file_url, filename: doc.filename, doc_id: doc.id }),
       })
-
       if (res.ok) {
         const result = await res.json()
         await supabase.from('deal_documents').update({
           ai_summary: result.summary, ai_extracted: result.extracted, doc_type: result.doc_type || doc.doc_type,
         }).eq('id', doc.id)
 
-        // Build deal field updates with clean numbers
         if (result.deal_fields) {
           const f = result.deal_fields
-          const updates = {}
-          if (cleanNum(f.asking_price)) updates.asking_price = cleanNum(f.asking_price)
-          if (cleanNum(f.building_sf)) updates.building_sf = cleanNum(f.building_sf)
-          if (cleanNum(f.lot_acres)) updates.lot_acres = cleanNum(f.lot_acres)
-          if (cleanNum(f.clear_height)) updates.clear_height = cleanNum(f.clear_height)
-          if (cleanNum(f.dock_doors)) updates.dock_doors = cleanNum(f.dock_doors)
-          if (cleanNum(f.cap_rate)) updates.cap_rate = cleanNum(f.cap_rate)
-          if (f.zoning && typeof f.zoning === 'string') updates.zoning = f.zoning
-          if (f.property_type && typeof f.property_type === 'string') updates.property_type = f.property_type
-          if (f.owner && typeof f.owner === 'string') updates.owner = f.owner
-          if (f.contact_name && typeof f.contact_name === 'string') updates.contact_name = f.contact_name
-          if (f.contact_method && typeof f.contact_method === 'string') updates.contact_method = f.contact_method
-          if (f.address && typeof f.address === 'string') updates.address = f.address
-          if (f.city && typeof f.city === 'string') updates.city = f.city
-          if (f.state && typeof f.state === 'string' && f.state.length <= 2) updates.state = f.state
-          if (Object.keys(updates).length > 0) {
-            setPendingUpdate({ fields: updates, notes: f.notes_append, docName: doc.filename })
+          const fieldMap = {}
+          const numFields = ['asking_price', 'building_sf', 'lot_acres', 'clear_height', 'dock_doors', 'cap_rate', 'year_built', 'price_per_sf']
+          for (const k of numFields) {
+            const cleaned = cleanNum(f[k])
+            if (cleaned !== null) {
+              const current = deal ? cleanNum(deal[k]) : null
+              fieldMap[k] = { value: cleaned, current, changed: current !== null ? current !== cleaned : true }
+            }
+          }
+          const strFields = ['zoning', 'property_type', 'owner', 'contact_name', 'contact_method', 'address', 'city', 'state']
+          for (const k of strFields) {
+            if (f[k] && typeof f[k] === 'string' && (k !== 'state' || f[k].length <= 2)) {
+              const current = deal ? deal[k] : null
+              fieldMap[k] = { value: f[k], current: current || null, changed: current ? current !== f[k] : true }
+            }
+          }
+          if (Object.keys(fieldMap).length > 0) {
+            for (const k of Object.keys(fieldMap)) {
+              fieldMap[k].accepted = fieldMap[k].current === null ? true : null
+            }
+            setPendingFields({ fields: fieldMap, notes: f.notes_append, docName: doc.filename })
           }
         }
         fetchDocs()
@@ -129,27 +139,57 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
     setReading(null)
   }
 
-  // ── READ ALL DOCUMENTS ──
   const aiReadAll = async () => {
     const pdfs = docs.filter(d => d.filename.toLowerCase().endsWith('.pdf') && !d.ai_summary)
-    if (pdfs.length === 0) { alert('No unread PDFs to process'); return }
+    if (pdfs.length === 0) return
     setReadingAll(true)
-    for (const doc of pdfs) {
-      await aiReadDoc(doc)
-    }
+    for (const doc of pdfs) { await aiReadDoc(doc) }
     setReadingAll(false)
   }
 
-  const applyUpdate = async () => {
-    if (!pendingUpdate) return
-    await supabase.from('deals').update(pendingUpdate.fields).eq('id', dealId)
-    if (pendingUpdate.notes) {
+  const applyApproved = async () => {
+    if (!pendingFields) return
+    const updates = {}
+    for (const [k, v] of Object.entries(pendingFields.fields)) {
+      if (v.accepted === true) updates[k] = v.value
+    }
+    if (Object.keys(updates).length > 0) {
+      await supabase.from('deals').update(updates).eq('id', dealId)
+    }
+    if (pendingFields.notes) {
       const { data: current } = await supabase.from('deals').select('notes').eq('id', dealId).single()
-      const newNotes = (current?.notes || '') + '\n[AI: ' + pendingUpdate.docName + '] ' + pendingUpdate.notes
+      const newNotes = (current?.notes || '') + '\n[AI: ' + pendingFields.docName + '] ' + pendingFields.notes
       await supabase.from('deals').update({ notes: newNotes.trim() }).eq('id', dealId)
     }
-    setPendingUpdate(null)
+    setPendingFields(null)
     if (onDealUpdated) onDealUpdated()
+  }
+
+  const toggleField = (key) => {
+    setPendingFields(prev => {
+      const fields = { ...prev.fields }
+      const cur = fields[key].accepted
+      if (cur === null) fields[key] = { ...fields[key], accepted: true }
+      else if (cur === true) fields[key] = { ...fields[key], accepted: false }
+      else fields[key] = { ...fields[key], accepted: fields[key].current === null ? true : null }
+      return { ...prev, fields }
+    })
+  }
+
+  const acceptAll = () => {
+    setPendingFields(prev => {
+      const fields = {}
+      for (const [k, v] of Object.entries(prev.fields)) { fields[k] = { ...v, accepted: true } }
+      return { ...prev, fields }
+    })
+  }
+
+  const rejectAll = () => {
+    setPendingFields(prev => {
+      const fields = {}
+      for (const [k, v] of Object.entries(prev.fields)) { fields[k] = { ...v, accepted: false } }
+      return { ...prev, fields }
+    })
   }
 
   const deleteDoc = async (id, fileUrl) => {
@@ -174,10 +214,12 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
   }
 
   const unreadPdfs = docs.filter(d => d.filename.toLowerCase().endsWith('.pdf') && !d.ai_summary).length
+  const pendingAccepted = pendingFields ? Object.values(pendingFields.fields).filter(f => f.accepted === true).length : 0
+  const pendingTotal = pendingFields ? Object.keys(pendingFields.fields).length : 0
+  const pendingUndecided = pendingFields ? Object.values(pendingFields.fields).filter(f => f.accepted === null).length : 0
 
   return (
     <div>
-      {/* Upload zone + Read All button */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'stretch' }}>
         <div style={{ flex: 1, border: `2px dashed ${B.gray40}`, borderRadius: 4, padding: 16, textAlign: 'center', cursor: 'pointer', background: B.gray10 }}
           onClick={() => document.getElementById('deal-doc-upload').click()}
@@ -201,32 +243,93 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
             borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: readingAll || unreadPdfs === 0 ? 'default' : 'pointer',
             fontFamily: hf, minWidth: 100, opacity: unreadPdfs === 0 ? 0.4 : 1,
           }}>
-            {readingAll ? 'Reading...' : `AI Read All`}
+            {readingAll ? 'Reading...' : 'AI Read All'}
             {unreadPdfs > 0 && !readingAll && <div style={{ fontSize: 9, fontWeight: 400, marginTop: 2, fontFamily: bf }}>{unreadPdfs} unread</div>}
           </button>
         )}
       </div>
 
-      {/* Pending AI update banner */}
-      {pendingUpdate && (
-        <div style={{ background: '#FFFBEB', border: '1px solid #F59E0B', borderRadius: 4, padding: 12, marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', fontFamily: hf, marginBottom: 6 }}>AI extracted data from {pendingUpdate.docName}</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-            {Object.entries(pendingUpdate.fields).map(([k, v]) => (
-              <span key={k} style={{ fontSize: 10, padding: '2px 6px', background: '#FEF3C7', borderRadius: 2, fontFamily: bf, color: '#78350F' }}>
-                {k.replace(/_/g, ' ')}: {typeof v === 'number' ? v.toLocaleString() : v}
-              </span>
-            ))}
+      {/* ═══ PER-FIELD APPROVAL BANNER ═══ */}
+      {pendingFields && (
+        <div style={{ background: '#FFFBEB', border: '1px solid #F59E0B', borderRadius: 6, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E', fontFamily: hf }}>
+                AI extracted {pendingTotal} fields from {pendingFields.docName}
+              </div>
+              <div style={{ fontSize: 11, color: '#B45309', fontFamily: bf }}>
+                Click each field to accept or reject · {pendingAccepted} accepted
+                {pendingUndecided > 0 && <span style={{ color: '#DC2626' }}> · {pendingUndecided} need review</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={acceptAll} style={{ padding: '4px 10px', background: '#059669', color: 'white', border: 'none', borderRadius: 3, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: hf }}>✓ All</button>
+              <button onClick={rejectAll} style={{ padding: '4px 10px', background: '#DC2626', color: 'white', border: 'none', borderRadius: 3, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: hf }}>✗ All</button>
+            </div>
           </div>
-          {pendingUpdate.notes && <div style={{ fontSize: 11, color: '#78350F', fontFamily: bf, marginBottom: 6 }}>{pendingUpdate.notes}</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+            {Object.entries(pendingFields.fields).map(([key, field]) => {
+              const isAccepted = field.accepted === true
+              const isRejected = field.accepted === false
+              const hasOverwrite = field.current !== null && field.changed
+              return (
+                <div key={key} onClick={() => toggleField(key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                    background: isAccepted ? '#ECFDF5' : isRejected ? '#FEF2F2' : '#FFF',
+                    border: `1px solid ${isAccepted ? '#10B981' : isRejected ? '#EF4444' : '#E5E7EB'}`,
+                    borderRadius: 4, cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.1)'}
+                  onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: 12, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700,
+                    background: isAccepted ? '#10B981' : isRejected ? '#EF4444' : '#D1D5DB', color: 'white',
+                  }}>
+                    {isAccepted ? '✓' : isRejected ? '✗' : '?'}
+                  </div>
+                  <div style={{ width: 110, fontSize: 11, fontWeight: 600, color: '#374151', fontFamily: hf, flexShrink: 0 }}>
+                    {FIELD_LABELS[key] || key.replace(/_/g, ' ')}
+                  </div>
+                  <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#111827', fontFamily: bf }}>
+                    {formatVal(key, field.value)}
+                  </div>
+                  {hasOverwrite && (
+                    <div style={{ fontSize: 10, color: '#9CA3AF', fontFamily: bf, textDecoration: 'line-through' }}>
+                      was: {formatVal(key, field.current)}
+                    </div>
+                  )}
+                  {!hasOverwrite && field.current === null && (
+                    <div style={{ fontSize: 10, color: '#059669', fontFamily: bf, fontWeight: 600 }}>NEW</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {pendingFields.notes && (
+            <div style={{ fontSize: 11, color: '#78350F', fontFamily: bf, marginBottom: 8, padding: '6px 8px', background: '#FEF3C7', borderRadius: 3 }}>
+              <span style={{ fontWeight: 600 }}>AI notes:</span> {pendingFields.notes}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={applyUpdate} style={{ padding: '5px 14px', background: '#1C4587', color: 'white', border: 'none', borderRadius: 3, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: hf }}>Apply to deal</button>
-            <button onClick={() => setPendingUpdate(null)} style={{ padding: '5px 14px', background: 'transparent', color: '#92400E', border: '1px solid #F59E0B', borderRadius: 3, fontSize: 11, cursor: 'pointer', fontFamily: bf }}>Dismiss</button>
+            <button onClick={applyApproved} disabled={pendingAccepted === 0}
+              style={{
+                padding: '7px 18px', background: pendingAccepted > 0 ? '#1C4587' : '#9CA3AF', color: 'white',
+                border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 700,
+                cursor: pendingAccepted > 0 ? 'pointer' : 'default', fontFamily: hf,
+                opacity: pendingAccepted > 0 ? 1 : 0.5,
+              }}>
+              Apply {pendingAccepted} field{pendingAccepted !== 1 ? 's' : ''}
+            </button>
+            <button onClick={() => setPendingFields(null)}
+              style={{ padding: '7px 14px', background: 'transparent', color: '#92400E', border: '1px solid #F59E0B', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontFamily: bf }}>
+              Skip all
+            </button>
           </div>
         </div>
       )}
 
-      {/* Document list */}
       {docs.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 20, color: B.gray40, fontSize: 12, fontFamily: bf }}>No documents uploaded yet</div>
       ) : (
@@ -258,7 +361,6 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
                   }}>
                     {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
-                  {/* AI Read button */}
                   {isPdf && (
                     <button onClick={e => { e.stopPropagation(); aiReadDoc(doc) }} disabled={isBeingRead}
                       style={{ fontSize: 10, color: doc.ai_summary ? '#10B981' : B.blue, fontFamily: hf, textDecoration: 'none', padding: '3px 8px', border: `1px solid ${doc.ai_summary ? '#10B98130' : B.blue + '30'}`, borderRadius: 3, background: isBeingRead ? B.gray10 : 'transparent', cursor: isBeingRead ? 'default' : 'pointer' }}>
@@ -268,7 +370,6 @@ export default function DealDocuments({ dealId, onDealUpdated }) {
                   <a href={doc.file_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 10, color: B.blue, fontFamily: hf, textDecoration: 'none', padding: '3px 8px', border: `1px solid ${B.blue}20`, borderRadius: 3 }}>View</a>
                   <button onClick={e => { e.stopPropagation(); deleteDoc(doc.id, doc.file_url) }} style={{ background: 'none', border: 'none', color: B.gray40, cursor: 'pointer', fontSize: 12, padding: '0 4px' }}>x</button>
                 </div>
-                {/* AI Summary expanded */}
                 {isExp && doc.ai_summary && (
                   <div style={{ padding: '0 12px 12px 52px', borderTop: `1px solid ${B.gray10}` }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: B.blue, fontFamily: hf, marginTop: 8, marginBottom: 4 }}>AI Summary</div>

@@ -5,7 +5,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-export const config = { api: { bodyParser: { sizeLimit: '20mb' } } }
+export const config = { api: { bodyParser: { sizeLimit: '1mb' }, maxDuration: 60 } }
 
 const PROMPT = `Extract deal info from this commercial real estate listing or offering memorandum. Return ONLY a valid JSON object with no markdown backticks. Use null for any field you cannot find.
 
@@ -17,10 +17,19 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set. Add it in Vercel Environment Variables.' })
 
-  const { url, pdf_base64, pdf_name } = req.body
-  if (!url && !pdf_base64) return res.status(400).json({ error: 'Provide url or pdf_base64' })
+  const { url, pdf_base64, pdf_storage_url, pdf_storage_path, pdf_name } = req.body
+  if (!url && !pdf_base64 && !pdf_storage_url) return res.status(400).json({ error: 'Provide url, pdf_base64, or pdf_storage_url' })
 
   try {
+    // If PDF was uploaded to storage, download it server-side and convert to base64
+    let pdfData = pdf_base64
+    if (!pdfData && pdf_storage_url) {
+      const pdfResp = await fetch(pdf_storage_url)
+      if (!pdfResp.ok) return res.status(500).json({ error: 'Failed to download PDF from storage: ' + pdfResp.status })
+      const buffer = Buffer.from(await pdfResp.arrayBuffer())
+      pdfData = buffer.toString('base64')
+    }
+
     let requestBody = { model: 'claude-sonnet-4-5-20250929', max_tokens: 2000 }
 
     if (url) {
@@ -30,7 +39,7 @@ export default async function handler(req, res) {
       requestBody.messages = [{
         role: 'user',
         content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf_base64 } },
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfData } },
           { type: 'text', text: PROMPT },
         ],
       }]
@@ -128,24 +137,57 @@ export default async function handler(req, res) {
     const { data: inserted, error: dbError } = await supabase.from('deals').insert(deal).select()
     if (dbError) return res.status(500).json({ error: 'Database error: ' + dbError.message })
 
-    // Save OM PDF to Supabase Storage
-    if (pdf_base64 && inserted && inserted[0]) {
+    // Save OM PDF to Supabase Storage + create deal_documents record
+    if ((pdfData || pdf_storage_path) && inserted && inserted[0]) {
       try {
         const dealId = inserted[0].id
         const fileName = `${dealId}/${pdf_name || 'om.pdf'}`
-        const buffer = Buffer.from(pdf_base64, 'base64')
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('deal-oms')
-          .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true })
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage.from('deal-oms').getPublicUrl(fileName)
-          await supabase.from('deals').update({
-            om_url: urlData?.publicUrl || fileName,
-            om_filename: pdf_name || 'om.pdf',
-          }).eq('id', dealId)
-          inserted[0].om_url = urlData?.publicUrl || fileName
-          inserted[0].om_filename = pdf_name || 'om.pdf'
+
+        if (pdf_storage_path) {
+          // File already in storage at temp path — move it to deal folder
+          const { data: dlData } = await supabase.storage.from('deal-oms').download(pdf_storage_path)
+          if (dlData) {
+            const buffer = Buffer.from(await dlData.arrayBuffer())
+            await supabase.storage.from('deal-oms').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true })
+            // Clean up temp file
+            await supabase.storage.from('deal-oms').remove([pdf_storage_path])
+            var fileSize = buffer.length
+          }
+        } else {
+          const buffer = Buffer.from(pdfData, 'base64')
+          await supabase.storage.from('deal-oms').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true })
+          var fileSize = buffer.length
         }
+
+        const { data: urlData } = supabase.storage.from('deal-oms').getPublicUrl(fileName)
+        const publicUrl = urlData?.publicUrl || fileName
+        await supabase.from('deals').update({
+          om_url: publicUrl,
+          om_filename: pdf_name || 'om.pdf',
+        }).eq('id', dealId)
+        inserted[0].om_url = publicUrl
+        inserted[0].om_filename = pdf_name || 'om.pdf'
+
+        // Also create a deal_documents record so it shows in Documents tab
+        await supabase.from('deal_documents').insert({
+          deal_id: dealId,
+          filename: pdf_name || 'om.pdf',
+          file_url: publicUrl,
+          file_size: fileSize || null,
+          doc_type: 'OM',
+          ai_summary: extracted.notes || `AI-ingested OM for ${extracted.address || 'deal'}. ${extracted.notes || ''}`.trim(),
+          ai_extracted: {
+            parties: extracted.owner || null,
+            amount: extracted.asking_price || null,
+            property_address: extracted.address ? `${extracted.address}, ${extracted.city || ''} ${extracted.state || ''}`.trim() : null,
+            key_terms: [
+              extracted.building_sf ? `${Number(extracted.building_sf).toLocaleString()} SF` : null,
+              extracted.lot_acres ? `${extracted.lot_acres} acres` : null,
+              extracted.cap_rate ? `${extracted.cap_rate}% cap` : null,
+              extracted.clear_height ? `${extracted.clear_height}ft clear` : null,
+            ].filter(Boolean).join(', ') || null,
+          },
+        })
       } catch (e) { /* OM save failed, non-critical */ }
     }
 

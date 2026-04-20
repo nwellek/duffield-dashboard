@@ -545,7 +545,7 @@ export default function OwnedDealView({ deal: dealProp, onBack }) {
       )}
 
       {/* Documents */}
-      {tab === 'documents' && <DealDocuments dealId={deal.id} onDealUpdated={() => {}} />}
+      {tab === 'documents' && <DealDocuments dealId={deal.id} deal={deal} onDealUpdated={() => {}} />}
 
       {/* Tenants */}
       {tab === 'tenants' && (
