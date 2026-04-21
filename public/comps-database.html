@@ -1197,19 +1197,21 @@ const esriLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_lab
 
 const esriSatellite = L.layerGroup([esriImagery, esriLabels]);
 
-// Google is the default - latest imagery
-googleSatellite.addTo(map);
+// Google is NOT default — Google tile server gets blocked in iframes on Vercel.
+// Dark CartoDB is default (matches the dark theme + loads reliably everywhere).
+dark.addTo(map);
 
-const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-  subdomains: 'abcd',
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap',
+  subdomains: 'abc',
   maxZoom: 19
 });
 
 L.control.layers({
-  'Satellite (Google - latest)': googleSatellite,
-  'Satellite (Esri - older)': esriSatellite,
-  'Dark': dark
+  'Dark': dark,
+  'Satellite (Esri)': esriSatellite,
+  'Satellite (Google)': googleSatellite,
+  'Street (OSM)': osm
 }, null, { position: 'bottomright' }).addTo(map);
 
 // ─── CUSTOM MARKERS ───

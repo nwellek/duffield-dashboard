@@ -1,11 +1,15 @@
 // ─── COMPS TAB ───
 // Embeds the full Duffield Comps Database (Leaflet map + sidebar + filters)
 // The comps-database.html file lives in /public/ and is served as a static asset.
-// Data is stored in Supabase table 'duffield_comps' (same project as dashboard).
 
 export default function CompsTab() {
   return (
-    <div style={{ width: '100%', height: 'calc(100vh - 56px)', position: 'relative' }}>
+    <div style={{
+      margin: '-16px -20px',
+      width: 'calc(100% + 40px)',
+      height: 'calc(100vh)',
+      position: 'relative',
+    }}>
       <iframe
         src="/comps-database.html"
         style={{
@@ -16,6 +20,7 @@ export default function CompsTab() {
         }}
         title="Duffield Comps Database"
         allow="clipboard-read; clipboard-write"
+        referrerPolicy="no-referrer"
       />
     </div>
   )
