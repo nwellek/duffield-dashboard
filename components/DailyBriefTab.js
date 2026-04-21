@@ -39,13 +39,13 @@ export default function DailyBriefTab({ deals }) {
   const owned = deals.filter(d => d.status === 'owned')
   const contract = deals.filter(d => d.status === 'under_contract')
   const loi = deals.filter(d => d.status === 'loi_sent')
-  const pursuit = deals.filter(d => d.status === 'pursuit')
+  const coldLoi = deals.filter(d => d.status === 'cold_loi')
   const review = deals.filter(d => d.status === 'under_review')
-  const pipeline = [...owned, ...contract, ...loi, ...pursuit, ...review]
+  const pipeline = [...owned, ...contract, ...loi, ...review, ...coldLoi]
 
   // Stale deals
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-  const staleDeals = deals.filter(d => ['pursuit', 'loi_sent', 'under_contract'].includes(d.status) && d.updated_at && new Date(d.updated_at) < sevenDaysAgo)
+  const staleDeals = deals.filter(d => ['loi_sent', 'under_contract', 'cold_loi'].includes(d.status) && d.updated_at && new Date(d.updated_at) < sevenDaysAgo)
 
   // Overdue tasks
   const overdueTasks = tasks.filter(t => t.due_date && new Date(t.due_date + 'T23:59:59') < today)

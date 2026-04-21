@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { B, hf, bf, COLUMNS, scoreDeal, gradeColor, fmt, Badge } from '../lib/brand'
 
-const STATUS_ORDER = { owned: 0, under_contract: 1, loi_sent: 2, pursuit: 3, under_review: 4, tracked: 5, dead: 6 }
+const STATUS_ORDER = { owned: 0, under_contract: 1, loi_sent: 2, under_review: 3, cold_loi: 4, dead: 5 }
 
 export default function TableView({ deals, onClickDeal, onRefresh }) {
   const [sk, setSk] = useState('_status_order')

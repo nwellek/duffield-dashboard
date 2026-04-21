@@ -66,21 +66,19 @@ function SearchBar({ deals, onSelect }) {
 
 // ─── STATS BAR (bigger) ───
 function Stats({ deals }) {
-  const tracked = deals.filter(d => d.status === 'tracked' || d.status === 'new_lead').length
-  const review = deals.filter(d => d.status === 'under_review').length
-  const pursuit = deals.filter(d => d.status === 'pursuit').length
-  const lois = deals.filter(d => d.status === 'loi_sent').length
-  const contract = deals.filter(d => d.status === 'under_contract').length
   const owned = deals.filter(d => d.status === 'owned').length
+  const contract = deals.filter(d => d.status === 'under_contract').length
+  const lois = deals.filter(d => d.status === 'loi_sent').length
+  const review = deals.filter(d => d.status === 'under_review').length
+  const coldLoi = deals.filter(d => d.status === 'cold_loi').length
   const dead = deals.filter(d => d.status === 'dead').length
-  const pv = deals.filter(d => d.asking_price && !['dead', 'tracked', 'new_lead'].includes(d.status)).reduce((s, d) => s + Number(d.asking_price), 0)
+  const pv = deals.filter(d => d.asking_price && !['dead', 'tracked', 'new_lead', 'cold_loi'].includes(d.status)).reduce((s, d) => s + Number(d.asking_price), 0)
   const items = [
-    { l: 'Tracked', v: tracked, c: B.gray },
-    { l: 'Review', v: review, c: B.blue },
-    { l: 'Pursuit', v: pursuit, c: B.amber },
-    { l: 'LOI out', v: lois, c: B.violet },
-    { l: 'Contract', v: contract, c: B.teal },
     { l: 'Owned', v: owned, c: B.green },
+    { l: 'Contract', v: contract, c: B.teal },
+    { l: 'LOI out', v: lois, c: B.violet },
+    { l: 'Review', v: review, c: B.blue },
+    { l: 'Cold LOI', v: coldLoi, c: '#E67E22' },
     { l: 'Dead', v: dead, c: B.red },
     { l: 'Pipeline $', v: fmt(pv), c: B.blue },
   ]
@@ -155,9 +153,9 @@ function Sidebar({ activeTab, setActiveTab, alertCount, ownedDeals, session }) {
 // ─── HOME PAGE ───
 function HomePage({ deals, setActiveTab, onClickDeal }) {
   const owned = deals.filter(d => d.status === 'owned')
-  const active = deals.filter(d => !['dead', 'owned', 'tracked'].includes(d.status))
-  const pursuit = deals.filter(d => d.status === 'pursuit')
+  const active = deals.filter(d => !['dead', 'owned', 'tracked', 'cold_loi'].includes(d.status))
   const lois = deals.filter(d => d.status === 'loi_sent')
+  const coldLois = deals.filter(d => d.status === 'cold_loi')
   const review = deals.filter(d => d.status === 'under_review')
   const dead = deals.filter(d => d.status === 'dead')
 
@@ -188,7 +186,7 @@ function HomePage({ deals, setActiveTab, onClickDeal }) {
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
         {card('Owned', owned.length, owned.map(d => d.address).join(', ') || 'None yet', B.green, 'tracker')}
-        {card('Active pipeline', active.length, pursuit.length + ' pursuit · ' + review.length + ' review', B.amber, 'tracker')}
+        {card('Active pipeline', active.length, lois.length + ' LOI · ' + review.length + ' review · ' + coldLois.length + ' cold', B.amber, 'tracker')}
         {card('Total deals', deals.length, dead.length + ' dead · ' + (deals.length - dead.length) + ' active', B.blue, 'tracker')}
       </div>
 
@@ -491,7 +489,7 @@ export default function Dashboard() {
               {isOwnedView && ownedViewDeal ? ownedViewDeal.address : activeTab === 'tracker' ? 'Deal Tracker' : NAV_ITEMS.find(n => n.id === activeTab)?.label || 'Dashboard'}
             </div>
             {isOwnedView && ownedViewDeal && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{ownedViewDeal.city}, {ownedViewDeal.state} — {ownedViewDeal.market}</div>}
-            {isTracker && !editing && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{deals.length} properties tracked</div>}
+            {isTracker && !editing && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{deals.length} properties</div>}
           </div>
 
           {!editing && !showNew && <SearchBar deals={deals} onSelect={d => openDeal(d)} />}

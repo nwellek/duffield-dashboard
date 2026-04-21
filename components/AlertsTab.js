@@ -20,7 +20,7 @@ export default function AlertsTab({ deals, onPromote }) {
   const promoteAlert = async (alert) => {
     const newDeal = {
       address: alert.address || '', city: alert.city || '', state: alert.state || '',
-      market: alert.market || 'Other', status: 'tracked', property_type: 'Small bay industrial',
+      market: alert.market || 'Other', status: 'under_review', property_type: 'Small bay industrial',
       asking_price: alert.asking_price, building_sf: alert.building_sf, lot_acres: alert.lot_acres,
       price_per_sf: alert.price_per_sf, cap_rate: alert.cap_rate, notes: `Source: ${alert.source}. ${alert.url || ''}`,
       source: alert.source,
