@@ -156,6 +156,7 @@ function CompsMap({ comps, filtered, onGeocodeDone }) {
 
   return (
     <div style={{ position: 'relative' }}>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
       <div ref={mapRef} style={{ height: 580, borderRadius: 6, border: '1px solid ' + B.gray20 }} />
       <div style={{ position: 'absolute', bottom: 12, left: 12, zIndex: 1000, display: 'flex', gap: 8, alignItems: 'center' }}>
         {unmapped > 0 && (
@@ -195,6 +196,7 @@ export default function CompsTab() {
   const [editVal, setEditVal] = useState('')
   const [uploadStatus, setUploadStatus] = useState('')
   const [extracting, setExtracting] = useState(false)
+  const [pendingComps, setPendingComps] = useState(null) // preview before insert
   const fileRef = useRef(null)
 
   const [newComp, setNewComp] = useState({
@@ -481,22 +483,9 @@ export default function CompsTab() {
 
     if (inserts.length === 0) { setUploadStatus('No valid comps found in file. Check column headers.'); setTimeout(() => setUploadStatus(''), 5000); return }
 
-    setUploadStatus('Inserting ' + inserts.length + ' comps into database...')
-
-    // Batch insert in chunks of 100
-    let inserted = 0; let errors = 0
-    for (let i = 0; i < inserts.length; i += 100) {
-      const chunk = inserts.slice(i, i + 100)
-      const { error } = await supabase.from('market_comps').insert(chunk)
-      if (error) { console.error('Insert error:', error); errors++ }
-      else { inserted += chunk.length }
-      setUploadStatus('Inserted ' + inserted + '/' + inserts.length + '...')
-    }
-
-    if (errors > 0) setUploadStatus('Imported ' + inserted + ' comps (' + errors + ' batch errors) from ' + fileName)
-    else setUploadStatus('Imported ' + inserted + ' comps from ' + fileName)
-    fetchComps()
-    setTimeout(() => setUploadStatus(''), 5000)
+    // Show preview instead of auto-inserting
+    setPendingComps({ comps: inserts, source: fileName })
+    setUploadStatus('Found ' + inserts.length + ' comps. Review and approve below.')
   }
 
   // ─── PDF EXTRACTION VIA ANTHROPIC API ───
@@ -574,24 +563,35 @@ export default function CompsTab() {
       // Auto-calc price_per_sf where missing
       inserts.forEach(c => { if (!c.price_per_sf && c.price && c.building_sf) c.price_per_sf = Math.round(c.price / c.building_sf) })
 
-      // Batch insert
-      let inserted = 0
-      for (let i = 0; i < inserts.length; i += 50) {
-        const chunk = inserts.slice(i, i + 50)
-        const { error } = await supabase.from('market_comps').insert(chunk)
-        if (error) { console.error('Insert error:', error.message, chunk[0]); setUploadStatus('DB error: ' + error.message); break }
-        inserted += chunk.length
-        setUploadStatus('Inserted ' + inserted + '/' + inserts.length + '...')
-      }
-
-      setUploadStatus('Extracted ' + inserted + ' comps from PDF')
-      fetchComps()
+      // Show preview instead of auto-inserting
+      setPendingComps({ comps: inserts, source: 'PDF: ' + file.name })
+      setUploadStatus('AI found ' + inserts.length + ' comps. Review and approve below.')
     } catch (e) {
       console.error('PDF extraction error:', e)
       setUploadStatus('PDF extraction failed: ' + e.message)
     }
     setExtracting(false); setTimeout(() => setUploadStatus(''), 6000)
   }
+
+  // ─── APPROVE / REJECT PENDING COMPS ───
+  const approveComps = async (selected) => {
+    const toInsert = selected || (pendingComps ? pendingComps.comps : [])
+    if (toInsert.length === 0) return
+    setUploadStatus('Inserting ' + toInsert.length + ' comps...')
+    let inserted = 0
+    for (let i = 0; i < toInsert.length; i += 50) {
+      const chunk = toInsert.slice(i, i + 50)
+      const { error } = await supabase.from('market_comps').insert(chunk)
+      if (error) { console.error('Insert error:', error); setUploadStatus('DB error: ' + error.message); break }
+      inserted += chunk.length
+    }
+    setUploadStatus('Inserted ' + inserted + ' comps')
+    setPendingComps(null)
+    fetchComps()
+    setTimeout(() => setUploadStatus(''), 4000)
+  }
+
+  const rejectComps = () => { setPendingComps(null); setUploadStatus('Upload cancelled.'); setTimeout(() => setUploadStatus(''), 3000) }
 
   const saleComps = filtered.filter(c => c.comp_type === 'sale')
   const leaseComps = filtered.filter(c => c.comp_type === 'lease')
@@ -660,6 +660,262 @@ export default function CompsTab() {
       </div>
 
       {uploadStatus && <div style={{ padding: '10px 14px', background: extracting ? B.amberLight : B.greenLight, border: '1px solid ' + (extracting ? B.amber : B.green) + '40', borderRadius: 4, marginBottom: 12, fontSize: 12, fontFamily: bf }}>{uploadStatus}</div>}
+
+      {/* PREVIEW MODAL — approve/reject extracted comps */}
+      {pendingComps && (
+        <div style={{ border: '2px solid ' + B.blue, borderRadius: 6, background: B.blue05, marginBottom: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', background: B.blue, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontFamily: hf, fontWeight: 700, fontSize: 14 }}>Review {pendingComps.comps.length} Extracted Comps</span>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>from {pendingComps.source}</span>
+          </div>
+          <div style={{ maxHeight: 400, overflowY: 'auto', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: B.blue10 }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>#</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Address</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>City</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Type</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Bldg SF</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Price</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Rent/SF</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Built</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Owner</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', fontFamily: hf, fontSize: 10, color: B.gray, fontWeight: 700 }}>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingComps.comps.map((c, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid ' + B.gray10 }}>
+                    <td style={{ padding: '5px 8px', color: B.gray40, fontSize: 10 }}>{i + 1}</td>
+                    <td style={{ padding: '5px 8px', fontWeight: 600, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.address}</td>
+                    <td style={{ padding: '5px 8px' }}>{c.city}, {c.state}</td>
+                    <td style={{ padding: '5px 8px' }}><Badge bg={TYPE_BG[c.comp_type]} color={TYPE_COLORS[c.comp_type]} style={{ fontSize: 8 }}>{(c.comp_type || '').toUpperCase()}</Badge></td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: hf }}>{c.building_sf ? Number(c.building_sf).toLocaleString() : '\u2014'}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: hf }}>{c.price ? '
+
+      {/* Upload modal */}
+      {showUpload && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowUpload(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 8, padding: 24, width: 480, boxShadow: '0 16px 48px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ fontFamily: hf, fontSize: 18, marginBottom: 16 }}>Upload Comps</h3>
+            <div onClick={() => fileRef.current && fileRef.current.click()}
+              style={{ border: '2px dashed ' + B.gray20, borderRadius: 6, padding: 32, textAlign: 'center', cursor: 'pointer', marginBottom: 16 }}
+              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = B.blue }}
+              onDragLeave={e => { e.currentTarget.style.borderColor = B.gray20 }}
+              onDrop={e => { e.preventDefault(); handleFileUpload(e.dataTransfer.files[0]); setShowUpload(false) }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>&#128196;</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Drop file here or click to browse</div>
+              <div style={{ fontSize: 12, color: B.gray, marginTop: 4 }}>Supports .csv, .xlsx, and .pdf</div>
+              <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" style={{ display: 'none' }} onChange={e => { handleFileUpload(e.target.files[0]); setShowUpload(false) }} />
+            </div>
+            <div style={{ fontSize: 11, color: B.gray, lineHeight: 1.6, padding: 12, background: B.gray10, borderRadius: 4 }}>
+              <b>CSV/XLSX:</b> Auto-maps columns like Address, Building SF, Price, Rent PSF, etc.<br /><b>PDF:</b> AI extracts property details from CoStar reports, broker OMs, etc.
+            </div>
+            <div style={{ textAlign: 'right', marginTop: 16 }}><button onClick={() => setShowUpload(false)} style={{ padding: '7px 16px', background: B.gray10, border: 'none', borderRadius: 4, fontSize: 12, fontFamily: bf, cursor: 'pointer' }}>Cancel</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Add form */}
+      {showAdd && (
+        <div style={{ background: B.blue05, border: '1px solid ' + B.blue20, borderRadius: 6, padding: 16, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+            {[
+              { k: 'comp_type', l: 'Type', type: 'select', opts: ['sale','lease','land'] },
+              { k: 'address', l: 'Address *' }, { k: 'city', l: 'City' }, { k: 'state', l: 'State' },
+              { k: 'market', l: 'Market', type: 'select', opts: MARKETS },
+              { k: 'building_sf', l: 'Building SF' }, { k: 'lot_acres', l: 'Acres' },
+              { k: 'year_built', l: 'Year Built' }, { k: 'clear_height', l: 'Clear Height' },
+              { k: 'docks', l: 'Docks' }, { k: 'price', l: 'Price' }, { k: 'price_per_sf', l: '$/SF' },
+              { k: 'rent_psf', l: 'Rent $/SF/YR' }, { k: 'cap_rate', l: 'Cap Rate %' },
+              { k: 'buyer', l: 'Buyer' }, { k: 'seller', l: 'Seller/Owner' },
+              { k: 'comp_date', l: 'Date', type: 'date' }, { k: 'source', l: 'Source' }, { k: 'notes', l: 'Notes' },
+            ].map(f => (
+              <div key={f.k}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: B.gray, textTransform: 'uppercase' }}>{f.l}</label>
+                {f.type === 'select' ? <select value={newComp[f.k]} onChange={e => setNewComp({ ...newComp, [f.k]: e.target.value })} style={inputStyle}>{f.opts.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                  : <input type={f.type || 'text'} value={newComp[f.k]} onChange={e => setNewComp({ ...newComp, [f.k]: e.target.value })} style={inputStyle} />}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button onClick={addComp} disabled={!newComp.address} style={{ padding: '7px 16px', background: B.blue, color: 'white', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, fontFamily: bf, cursor: 'pointer', opacity: newComp.address ? 1 : 0.5 }}>Save Comp</button>
+            <button onClick={() => setShowAdd(false)} style={{ padding: '7px 16px', background: B.gray10, border: 'none', borderRadius: 4, fontSize: 12, fontFamily: bf, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* MAP VIEW */}
+      {view === 'map' && <CompsMap comps={comps} filtered={filtered} onGeocodeDone={fetchComps} />}
+
+      {/* TABLE VIEW */}
+      {view === 'table' && (
+        <div style={{ overflowX: 'auto', border: '1px solid ' + B.gray20, borderRadius: 6, background: 'white' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr>
+              <th style={{ ...thStyle(''), width: 30, cursor: 'default' }}>#</th>
+              {COMP_FIELDS.map(f => <th key={f.key} onClick={() => toggleSort(f.key)} style={{ ...thStyle(f.key), minWidth: f.w }}>{f.label} {sortKey === f.key ? (sortDir > 0 ? '\u25B2' : '\u25BC') : ''}</th>)}
+              <th style={{ ...thStyle(''), width: 40, cursor: 'default' }}></th>
+            </tr></thead>
+            <tbody>
+              {sorted.length === 0 && <tr><td colSpan={COMP_FIELDS.length + 2} style={{ ...tdStyle, textAlign: 'center', padding: 40, color: B.gray }}>{loading ? 'Loading...' : 'No comps found. Add your first comp or upload a file.'}</td></tr>}
+              {sorted.map((c, i) => (
+                <tr key={c.id} onMouseEnter={e => e.currentTarget.style.background = B.gray10} onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <td style={{ ...tdStyle, color: B.gray40, fontSize: 10 }}>{i + 1}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'address', c.address)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'city', c.city)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'state', c.state)}</td>
+                  <td style={tdStyle}><Badge bg={TYPE_BG[c.comp_type]} color={TYPE_COLORS[c.comp_type]} style={{ fontSize: 9 }}>{(c.comp_type || 'sale').toUpperCase()}</Badge></td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'building_sf', c.building_sf ? fmtN(c.building_sf) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'lot_acres', c.lot_acres ? Number(c.lot_acres).toFixed(1) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'year_built', c.year_built)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'clear_height', c.clear_height ? c.clear_height + "'" : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'docks', c.docks)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontFamily: hf }}>{editInput(c.id, 'price', c.price ? fmt(c.price) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'price_per_sf', c.price_per_sf ? '$' + fmtN(c.price_per_sf) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf, color: B.blue }}>{editInput(c.id, 'rent_psf', c.rent_psf ? '$' + Number(c.rent_psf).toFixed(2) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'cap_rate', c.cap_rate ? c.cap_rate + '%' : '')}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'buyer', c.buyer)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'seller', c.seller)}</td>
+                  <td style={{ ...tdStyle, fontSize: 11 }}>{fmtD(c.comp_date)}</td>
+                  <td style={{ ...tdStyle, fontSize: 10, color: B.gray }}>{c.source || '\u2014'}</td>
+                  <td style={{ ...tdStyle, fontSize: 10, color: B.gray, maxWidth: 150 }}>{c.notes || '\u2014'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteComp(c.id) }}
+                      style={{ background: 'none', border: 'none', color: B.gray40, cursor: 'pointer', fontSize: 13, padding: '2px 4px', borderRadius: 3 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = B.red; e.currentTarget.style.background = B.redLight }}
+                      onMouseLeave={e => { e.currentTarget.style.color = B.gray40; e.currentTarget.style.background = 'none' }}>&#128465;</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+ + Number(c.price).toLocaleString() : '\u2014'}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontFamily: hf, color: B.blue }}>{c.rent_psf ? '
+
+      {/* Upload modal */}
+      {showUpload && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowUpload(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 8, padding: 24, width: 480, boxShadow: '0 16px 48px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ fontFamily: hf, fontSize: 18, marginBottom: 16 }}>Upload Comps</h3>
+            <div onClick={() => fileRef.current && fileRef.current.click()}
+              style={{ border: '2px dashed ' + B.gray20, borderRadius: 6, padding: 32, textAlign: 'center', cursor: 'pointer', marginBottom: 16 }}
+              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = B.blue }}
+              onDragLeave={e => { e.currentTarget.style.borderColor = B.gray20 }}
+              onDrop={e => { e.preventDefault(); handleFileUpload(e.dataTransfer.files[0]); setShowUpload(false) }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>&#128196;</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Drop file here or click to browse</div>
+              <div style={{ fontSize: 12, color: B.gray, marginTop: 4 }}>Supports .csv, .xlsx, and .pdf</div>
+              <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" style={{ display: 'none' }} onChange={e => { handleFileUpload(e.target.files[0]); setShowUpload(false) }} />
+            </div>
+            <div style={{ fontSize: 11, color: B.gray, lineHeight: 1.6, padding: 12, background: B.gray10, borderRadius: 4 }}>
+              <b>CSV/XLSX:</b> Auto-maps columns like Address, Building SF, Price, Rent PSF, etc.<br /><b>PDF:</b> AI extracts property details from CoStar reports, broker OMs, etc.
+            </div>
+            <div style={{ textAlign: 'right', marginTop: 16 }}><button onClick={() => setShowUpload(false)} style={{ padding: '7px 16px', background: B.gray10, border: 'none', borderRadius: 4, fontSize: 12, fontFamily: bf, cursor: 'pointer' }}>Cancel</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Add form */}
+      {showAdd && (
+        <div style={{ background: B.blue05, border: '1px solid ' + B.blue20, borderRadius: 6, padding: 16, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+            {[
+              { k: 'comp_type', l: 'Type', type: 'select', opts: ['sale','lease','land'] },
+              { k: 'address', l: 'Address *' }, { k: 'city', l: 'City' }, { k: 'state', l: 'State' },
+              { k: 'market', l: 'Market', type: 'select', opts: MARKETS },
+              { k: 'building_sf', l: 'Building SF' }, { k: 'lot_acres', l: 'Acres' },
+              { k: 'year_built', l: 'Year Built' }, { k: 'clear_height', l: 'Clear Height' },
+              { k: 'docks', l: 'Docks' }, { k: 'price', l: 'Price' }, { k: 'price_per_sf', l: '$/SF' },
+              { k: 'rent_psf', l: 'Rent $/SF/YR' }, { k: 'cap_rate', l: 'Cap Rate %' },
+              { k: 'buyer', l: 'Buyer' }, { k: 'seller', l: 'Seller/Owner' },
+              { k: 'comp_date', l: 'Date', type: 'date' }, { k: 'source', l: 'Source' }, { k: 'notes', l: 'Notes' },
+            ].map(f => (
+              <div key={f.k}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: B.gray, textTransform: 'uppercase' }}>{f.l}</label>
+                {f.type === 'select' ? <select value={newComp[f.k]} onChange={e => setNewComp({ ...newComp, [f.k]: e.target.value })} style={inputStyle}>{f.opts.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                  : <input type={f.type || 'text'} value={newComp[f.k]} onChange={e => setNewComp({ ...newComp, [f.k]: e.target.value })} style={inputStyle} />}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button onClick={addComp} disabled={!newComp.address} style={{ padding: '7px 16px', background: B.blue, color: 'white', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, fontFamily: bf, cursor: 'pointer', opacity: newComp.address ? 1 : 0.5 }}>Save Comp</button>
+            <button onClick={() => setShowAdd(false)} style={{ padding: '7px 16px', background: B.gray10, border: 'none', borderRadius: 4, fontSize: 12, fontFamily: bf, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* MAP VIEW */}
+      {view === 'map' && <CompsMap comps={comps} filtered={filtered} onGeocodeDone={fetchComps} />}
+
+      {/* TABLE VIEW */}
+      {view === 'table' && (
+        <div style={{ overflowX: 'auto', border: '1px solid ' + B.gray20, borderRadius: 6, background: 'white' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr>
+              <th style={{ ...thStyle(''), width: 30, cursor: 'default' }}>#</th>
+              {COMP_FIELDS.map(f => <th key={f.key} onClick={() => toggleSort(f.key)} style={{ ...thStyle(f.key), minWidth: f.w }}>{f.label} {sortKey === f.key ? (sortDir > 0 ? '\u25B2' : '\u25BC') : ''}</th>)}
+              <th style={{ ...thStyle(''), width: 40, cursor: 'default' }}></th>
+            </tr></thead>
+            <tbody>
+              {sorted.length === 0 && <tr><td colSpan={COMP_FIELDS.length + 2} style={{ ...tdStyle, textAlign: 'center', padding: 40, color: B.gray }}>{loading ? 'Loading...' : 'No comps found. Add your first comp or upload a file.'}</td></tr>}
+              {sorted.map((c, i) => (
+                <tr key={c.id} onMouseEnter={e => e.currentTarget.style.background = B.gray10} onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <td style={{ ...tdStyle, color: B.gray40, fontSize: 10 }}>{i + 1}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'address', c.address)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'city', c.city)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'state', c.state)}</td>
+                  <td style={tdStyle}><Badge bg={TYPE_BG[c.comp_type]} color={TYPE_COLORS[c.comp_type]} style={{ fontSize: 9 }}>{(c.comp_type || 'sale').toUpperCase()}</Badge></td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'building_sf', c.building_sf ? fmtN(c.building_sf) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'lot_acres', c.lot_acres ? Number(c.lot_acres).toFixed(1) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'year_built', c.year_built)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'clear_height', c.clear_height ? c.clear_height + "'" : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{editInput(c.id, 'docks', c.docks)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontFamily: hf }}>{editInput(c.id, 'price', c.price ? fmt(c.price) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'price_per_sf', c.price_per_sf ? '$' + fmtN(c.price_per_sf) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf, color: B.blue }}>{editInput(c.id, 'rent_psf', c.rent_psf ? '$' + Number(c.rent_psf).toFixed(2) : '')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: hf }}>{editInput(c.id, 'cap_rate', c.cap_rate ? c.cap_rate + '%' : '')}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'buyer', c.buyer)}</td>
+                  <td style={tdStyle}>{editInput(c.id, 'seller', c.seller)}</td>
+                  <td style={{ ...tdStyle, fontSize: 11 }}>{fmtD(c.comp_date)}</td>
+                  <td style={{ ...tdStyle, fontSize: 10, color: B.gray }}>{c.source || '\u2014'}</td>
+                  <td style={{ ...tdStyle, fontSize: 10, color: B.gray, maxWidth: 150 }}>{c.notes || '\u2014'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <button onClick={(e) => { e.stopPropagation(); deleteComp(c.id) }}
+                      style={{ background: 'none', border: 'none', color: B.gray40, cursor: 'pointer', fontSize: 13, padding: '2px 4px', borderRadius: 3 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = B.red; e.currentTarget.style.background = B.redLight }}
+                      onMouseLeave={e => { e.currentTarget.style.color = B.gray40; e.currentTarget.style.background = 'none' }}>&#128465;</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+ + Number(c.rent_psf).toFixed(2) : '\u2014'}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right' }}>{c.year_built || '\u2014'}</td>
+                    <td style={{ padding: '5px 8px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.seller || '\u2014'}</td>
+                    <td style={{ padding: '5px 8px', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: B.gray, fontSize: 10 }}>{c.notes || '\u2014'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: '12px 16px', borderTop: '1px solid ' + B.gray20, display: 'flex', gap: 8, justifyContent: 'flex-end', background: 'white' }}>
+            <button onClick={rejectComps} style={{ padding: '8px 20px', background: 'white', border: '1px solid ' + B.red, color: B.red, borderRadius: 4, fontSize: 12, fontWeight: 600, fontFamily: bf, cursor: 'pointer' }}>Reject All</button>
+            <button onClick={() => approveComps()} style={{ padding: '8px 20px', background: B.green, color: 'white', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, fontFamily: bf, cursor: 'pointer' }}>Approve All ({pendingComps.comps.length})</button>
+          </div>
+        </div>
+      )}
 
       {/* Upload modal */}
       {showUpload && (
