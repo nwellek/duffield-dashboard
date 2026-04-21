@@ -253,84 +253,400 @@ export default function CompsTab() {
   }
   const cancelEdit = () => { setEditing(null); setEditVal('') }
 
+  // ─── SMART COLUMN MAPPER ───
+  // Handles CoStar multi-line headers, CBRE abbreviations, and common variations
+  const normalizeCol = (col) => {
+    if (!col) return null
+    const c = String(col).replace(/[\n\r]+/g, ' ').trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_')
+    if (!c) return null
+    const MAP = {
+      address: 'address', property_address: 'address', street_address: 'address', location: 'address',
+      property_name_address: 'address', property_name: 'address', site: 'address',
+      city: 'city', town: 'city',
+      state: 'state', st: 'state',
+      type: 'comp_type', comp_type: 'comp_type', property_type: 'notes',
+      building_sf: 'building_sf', size: 'building_sf', sf: 'building_sf', sqft: 'building_sf',
+      size_leased: 'building_sf', rba: 'building_sf', bldg_sf: 'building_sf', total_sf: 'building_sf',
+      gla: 'building_sf', nra: 'building_sf', square_feet: 'building_sf', square_footage: 'building_sf',
+      lot_acres: 'lot_acres', acres: 'lot_acres', acreage: 'lot_acres', land_area: 'lot_acres',
+      land_size: 'lot_acres', parcel_size: 'lot_acres', lot_size: 'lot_acres',
+      year_built: 'year_built', built: 'year_built', built_renovated: 'year_built', yr_built: 'year_built', vintage: 'year_built',
+      clear_height: 'clear_height', clear_ht: 'clear_height', ceiling_height: 'clear_height',
+      docks: 'docks', dock_doors: 'docks', loading_docks: 'docks',
+      price: 'price', asking_price: 'price', sale_price: 'price', purchase_price: 'price',
+      asking_price_cap_rate: 'price', total_price: 'price',
+      price_per_sf: 'price_per_sf', price_psf: 'price_per_sf', psf: 'price_per_sf',
+      asking_price_per_sf: 'price_per_sf', per_sf: 'price_per_sf',
+      rent_psf: 'rent_psf', rent: 'rent_psf', asking_rent: 'rent_psf', rent_per_sf: 'rent_psf',
+      rental_rate: 'rent_psf', base_rent: 'rent_psf', net_rent: 'rent_psf',
+      asking_rent_cap_rate: 'rent_psf', rental_rate_per_sf: 'rent_psf',
+      cap_rate: 'cap_rate', cap: 'cap_rate',
+      buyer: 'buyer', purchaser: 'buyer', grantee: 'buyer',
+      seller: 'seller', owner: 'seller', true_owner: 'seller', recorded_owner: 'seller', grantor: 'seller',
+      source: 'source', notes: 'notes', comments: 'notes', remarks: 'notes',
+      date: 'comp_date', sale_date: 'comp_date', comp_date: 'comp_date', closing_date: 'comp_date',
+      transaction_date: 'comp_date',
+      latitude: 'latitude', lat: 'latitude',
+      longitude: 'longitude', lng: 'longitude', lon: 'longitude',
+      sf_available: '_sf_available', available: '_available', vacancy: '_vacancy',
+      tenant: '_tenant', tenant_name: '_tenant', lessee: '_tenant',
+      submarket: 'market', market: 'market',
+      zoning: '_zoning', land_use: '_zoning',
+    }
+    if (MAP[c]) return MAP[c]
+    // Fuzzy match patterns
+    if (c.includes('address') || c.includes('location') || c.includes('property_name')) return 'address'
+    if (c.includes('building') && c.includes('sf')) return 'building_sf'
+    if (c.includes('clear') && c.includes('h')) return 'clear_height'
+    if (c.includes('year') && c.includes('built')) return 'year_built'
+    if (c.includes('cap') && c.includes('rate')) return 'cap_rate'
+    if (c.includes('rent') && (c.includes('sf') || c.includes('psf'))) return 'rent_psf'
+    if (c.includes('price') && c.includes('sf')) return 'price_per_sf'
+    if (c.includes('sale') && c.includes('price')) return 'price'
+    if (c.includes('asking') && c.includes('price')) return 'price'
+    if (c.includes('asking') && c.includes('rent')) return 'rent_psf'
+    if (c.includes('dock')) return 'docks'
+    if (c.includes('acre')) return 'lot_acres'
+    return null
+  }
+
+  // Clean numeric value: strip $, commas, %, SF, etc. Handle "Withheld", "Not For Sale", ranges
+  const cleanNum = (v) => {
+    if (!v && v !== 0) return null
+    const s = String(v).trim()
+    if (!s || s === '-' || s === '\u2014' || s.toLowerCase() === 'withheld' || s.toLowerCase().includes('not for sale') || s.toLowerCase().includes('not disclosed') || s.toLowerCase() === 'negotiable') return null
+    // Handle ranges like "24,000 - 200,000" — take the first number
+    const rangeParts = s.split(/\s*[-\/]\s*/)
+    const raw = rangeParts[0].replace(/[$,\s%sfSF]/g, '').replace(/['’′]/g, '')
+    const n = parseFloat(raw)
+    return isNaN(n) ? null : n
+  }
+
+  // Clean clear height: "16'" -> 16, "24'8\"" -> 24.67, "24 ft" -> 24
+  const cleanHeight = (v) => {
+    if (!v) return null
+    const s = String(v).trim()
+    const m = s.match(/(\d+)['’′]\s*(\d+)?/)
+    if (m) return m[2] ? parseFloat(m[1]) + parseFloat(m[2]) / 12 : parseFloat(m[1])
+    return cleanNum(s)
+  }
+
+  // ─── FILE UPLOAD HANDLER ───
   const handleFileUpload = async (file) => {
     if (!file) return; const name = file.name.toLowerCase()
     if (name.endsWith('.pdf')) { await extractFromPDF(file); return }
-    setUploadStatus('Parsing...')
-    if (name.endsWith('.csv')) {
-      const text = await file.text(); const Papa = (await import('papaparse')).default
-      Papa.parse(text, { header: true, skipEmptyLines: true, complete: async (results) => { await ingestRows(results.data, file.name) } })
-    } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-      const XLSX = await import('xlsx'); const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true }); const allRows = []
-      wb.SheetNames.forEach(sn => {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' })
-        const st = sn.toLowerCase().includes('lease') ? 'lease' : sn.toLowerCase().includes('land') ? 'land' : sn.toLowerCase().includes('sale') ? 'sale' : ''
-        rows.forEach(r => { if (st) r._sheetType = st; allRows.push(r) })
-      })
-      await ingestRows(allRows, file.name)
-    } else { setUploadStatus('Unsupported file type') }
-  }
-
-  const ingestRows = async (rows, fileName) => {
-    const inserts = rows.map(r => mapRow(r)).filter(Boolean)
-    if (inserts.length === 0) { setUploadStatus('No valid rows found'); return }
-    const { error } = await supabase.from('market_comps').insert(inserts)
-    if (error) setUploadStatus('Error: ' + error.message)
-    else { setUploadStatus('Imported ' + inserts.length + ' comps from ' + fileName); fetchComps() }
-    setTimeout(() => setUploadStatus(''), 4000)
-  }
-
-  const mapRow = (r) => {
-    const g = (...keys) => { for (const k of keys) { const v = r[k] || r[k.toLowerCase()] || r[k.toUpperCase()]; if (v) return String(v).trim() } return '' }
-    const address = g('address','Address','Property Address','Street Address','location','Location','Property Name/ Address')
-    if (!address) return null
-    const city = g('city','City','town'); const state = g('state','State','ST')
-    const ct = (r._sheetType || g('type','Type','comp_type') || '').toLowerCase()
-    const type = ct.includes('lease') ? 'lease' : ct.includes('land') ? 'land' : 'sale'
-    return {
-      address, city, state: state || 'NC', comp_type: type,
-      market: g('market','Market','submarket') || (city && state ? city + ', ' + state : 'Other'),
-      building_sf: cn(g('building_sf','Size','SF','Building SF','sqft')), lot_acres: cn(g('lot_acres','Acres','Land Area')),
-      price: cn(g('price','Price','Asking Price','Sale Price')), price_per_sf: cn(g('price_per_sf','Price PSF','$/SF')),
-      rent_psf: cn(g('rent_psf','Rent','Asking Rent','Rent PSF')), cap_rate: cn(g('cap_rate','Cap Rate','Cap')),
-      clear_height: cn(g('clear_height','Clear Height')), year_built: cn(g('year_built','Built','Year Built')),
-      docks: cn(g('docks','Docks','Dock Doors')), buyer: g('buyer','Buyer'), seller: g('seller','Seller','Owner','True Owner'),
-      source: g('source','Source') || 'Upload', notes: g('notes','Notes'),
-      comp_date: g('comp_date','Date','Sale Date') || new Date().toISOString().slice(0, 10),
-      latitude: cn(g('latitude','Latitude','lat')), longitude: cn(g('longitude','Longitude','lng','lon')),
+    setUploadStatus('Parsing ' + file.name + '...')
+    try {
+      if (name.endsWith('.csv')) {
+        const text = await file.text(); const Papa = (await import('papaparse')).default
+        Papa.parse(text, { header: true, skipEmptyLines: true, complete: async (results) => {
+          setUploadStatus('Parsed ' + results.data.length + ' rows, mapping columns...')
+          await ingestRows(results.data, file.name, '')
+        }})
+      } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        const XLSX = await import('xlsx'); const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' })
+        const allRows = []; let totalParsed = 0
+        wb.SheetNames.forEach(sn => {
+          const sheet = wb.Sheets[sn]
+          const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false })
+          // Find header row: first row with 3+ non-empty cells
+          let headerIdx = -1
+          for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+            const nonEmpty = (aoa[i] || []).filter(c => c !== null && c !== undefined && String(c).trim() !== '').length
+            if (nonEmpty >= 3) { headerIdx = i; break }
+          }
+          if (headerIdx === -1) return
+          const headers = aoa[headerIdx].map(h => String(h || '').trim())
+          // Sheet type from name
+          const sl = sn.toLowerCase()
+          const sheetType = sl.includes('lease') ? 'lease' : sl.includes('land') ? 'land' : sl.includes('sale') ? 'sale' : ''
+          // Data rows: skip headers, stop at totals/empty
+          for (let i = headerIdx + 1; i < aoa.length; i++) {
+            const row = aoa[i] || []
+            const nonEmpty = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '').length
+            if (nonEmpty < 2) continue
+            const rowStr = row.join(' ').toLowerCase()
+            if (rowStr.includes('total') || rowStr.includes('weighted average') || rowStr.includes('summary')) continue
+            const obj = {}
+            headers.forEach((h, idx) => { if (h && idx < row.length) obj[h] = row[idx] })
+            if (sheetType) obj._sheetType = sheetType
+            allRows.push(obj)
+          }
+          totalParsed += allRows.length
+        })
+        setUploadStatus('Parsed ' + allRows.length + ' rows from ' + wb.SheetNames.length + ' sheets, mapping...')
+        await ingestRows(allRows, file.name, '')
+      } else { setUploadStatus('Unsupported file type. Use .csv, .xlsx, or .pdf') }
+    } catch (e) {
+      console.error('Upload error:', e)
+      setUploadStatus('Upload failed: ' + e.message)
+      setTimeout(() => setUploadStatus(''), 5000)
     }
   }
 
+  // ─── MAP ROWS TO COMPS AND INSERT ───
+  const ingestRows = async (rows, fileName, fileType) => {
+    // Build column mapping from first row's keys
+    const sampleKeys = rows.length > 0 ? Object.keys(rows[0]) : []
+    const colMap = {}
+    sampleKeys.forEach(k => {
+      if (k.startsWith('_')) return
+      const mapped = normalizeCol(k)
+      if (mapped && !colMap[mapped]) colMap[mapped] = k
+    })
+
+    const inserts = []
+    rows.forEach(r => {
+      const get = (field) => {
+        const key = colMap[field]
+        if (!key) return ''
+        const val = r[key]
+        return val !== null && val !== undefined ? String(val).trim() : ''
+      }
+
+      // Also try direct key access for unmapped columns
+      const getAny = (field, ...alts) => {
+        const v = get(field)
+        if (v) return v
+        for (const alt of alts) {
+          for (const k of Object.keys(r)) {
+            if (k.toLowerCase().replace(/[^a-z]/g, '').includes(alt.toLowerCase().replace(/[^a-z]/g, ''))) {
+              const val = r[k]
+              if (val !== null && val !== undefined && String(val).trim()) return String(val).trim()
+            }
+          }
+        }
+        return ''
+      }
+
+      const address = get('address') || getAny('address', 'propertyname', 'location', 'site')
+      if (!address || address.length < 3) return
+
+      const city = get('city') || getAny('city', 'town')
+      const state = get('state') || getAny('state', 'st') || 'NC'
+
+      // Determine comp type
+      let ct = (r._sheetType || get('comp_type') || '').toLowerCase()
+      const rentVal = get('rent_psf') || getAny('rent_psf', 'askingrent', 'rentalsf')
+      const priceVal = get('price') || getAny('price', 'saleprice', 'askingprice')
+      const acresVal = get('lot_acres') || getAny('lot_acres', 'acres')
+      if (!ct || (ct !== 'lease' && ct !== 'sale' && ct !== 'land')) {
+        if (rentVal && cleanNum(rentVal)) ct = 'lease'
+        else if (acresVal && cleanNum(acresVal) && !get('building_sf')) ct = 'land'
+        else ct = 'sale'
+      }
+
+      // Notes: combine property type, zoning, tenant, available SF
+      const noteParts = []
+      const propType = getAny('notes', 'propertytype', 'type')
+      if (propType && !['sale','lease','land'].includes(propType.toLowerCase())) noteParts.push(propType)
+      const zoning = getAny('_zoning', 'zoning')
+      if (zoning) noteParts.push('Zoning: ' + zoning)
+      const tenant = getAny('_tenant', 'tenant')
+      if (tenant) noteParts.push('Tenant: ' + tenant)
+      const avail = getAny('_sf_available', 'sfavailable', 'available')
+      if (avail) noteParts.push('Avail: ' + avail)
+      const existingNotes = get('notes')
+      if (existingNotes) noteParts.push(existingNotes)
+
+      const comp = {
+        address: address.split('\n')[0].trim(),
+        city, state,
+        comp_type: ct.includes('lease') ? 'lease' : ct.includes('land') ? 'land' : 'sale',
+        market: get('market') || (city && state ? city + ', ' + state : 'Other'),
+        building_sf: cleanNum(get('building_sf') || getAny('building_sf', 'size', 'buildingsf', 'sqft')),
+        lot_acres: cleanNum(get('lot_acres') || acresVal),
+        year_built: cleanNum(get('year_built') || getAny('year_built', 'yearbuilt', 'built')),
+        clear_height: cleanHeight(get('clear_height') || getAny('clear_height', 'clearheight', 'ceilingheight')),
+        docks: cleanNum(get('docks') || getAny('docks', 'dockdoors')),
+        price: cleanNum(priceVal),
+        price_per_sf: cleanNum(get('price_per_sf') || getAny('price_per_sf', 'pricepsf', 'persf')),
+        rent_psf: cleanNum(rentVal),
+        cap_rate: cleanNum(get('cap_rate') || getAny('cap_rate', 'caprate')),
+        buyer: get('buyer') || getAny('buyer', 'purchaser'),
+        seller: get('seller') || getAny('seller', 'owner', 'trueowner', 'recordedowner'),
+        source: get('source') || 'Upload: ' + fileName,
+        notes: noteParts.join(' | ') || null,
+        comp_date: get('comp_date') || getAny('comp_date', 'saledate', 'date') || new Date().toISOString().slice(0, 10),
+        latitude: cleanNum(get('latitude')),
+        longitude: cleanNum(get('longitude')),
+      }
+
+      // Auto-calc price_per_sf
+      if (!comp.price_per_sf && comp.price && comp.building_sf) comp.price_per_sf = Math.round(comp.price / comp.building_sf)
+
+      inserts.push(comp)
+    })
+
+    if (inserts.length === 0) { setUploadStatus('No valid comps found in file. Check column headers.'); setTimeout(() => setUploadStatus(''), 5000); return }
+
+    setUploadStatus('Inserting ' + inserts.length + ' comps into database...')
+
+    // Batch insert in chunks of 100
+    let inserted = 0; let errors = 0
+    for (let i = 0; i < inserts.length; i += 100) {
+      const chunk = inserts.slice(i, i + 100)
+      const { error } = await supabase.from('market_comps').insert(chunk)
+      if (error) { console.error('Insert error:', error); errors++ }
+      else { inserted += chunk.length }
+      setUploadStatus('Inserted ' + inserted + '/' + inserts.length + '...')
+    }
+
+    if (errors > 0) setUploadStatus('Imported ' + inserted + ' comps (' + errors + ' batch errors) from ' + fileName)
+    else setUploadStatus('Imported ' + inserted + ' comps from ' + fileName)
+    fetchComps()
+    setTimeout(() => setUploadStatus(''), 5000)
+  }
+
+  // ─── PDF EXTRACTION VIA ANTHROPIC API ───
   const extractFromPDF = async (file) => {
-    setExtracting(true); setUploadStatus('Extracting comps from PDF with AI...')
+    setExtracting(true); setUploadStatus('Sending PDF to AI for extraction...')
     try {
       const buf = await file.arrayBuffer()
-      const base64 = btoa(new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ''))
+      // Convert to base64 in chunks to avoid call stack overflow on large PDFs
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      const chunkSize = 8192
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize))
+      }
+      const base64 = btoa(binary)
+
+      setUploadStatus('AI is reading ' + Math.round(buf.byteLength / 1024) + 'KB PDF...')
+
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000,
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
           messages: [{ role: 'user', content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-            { type: 'text', text: 'Extract every property/comp from this document into a JSON array. Each object should have: address, city, state, comp_type (sale/lease/land), building_sf (number), lot_acres (number), year_built (number), clear_height (feet as number), docks (number), price (number), price_per_sf (number), rent_psf (number, annual $/SF), cap_rate (number like 7.5), buyer, seller (owner name), notes (key details), comp_date (YYYY-MM-DD or null), latitude (number or null), longitude (number or null). Use null if not found. Return ONLY the JSON array.' }
+            { type: 'text', text: `You are a commercial real estate data extraction tool. Extract EVERY property listed in this document into a JSON array.
+
+This may be a CoStar report, broker OM, market survey, or property listing. Extract ALL properties — there could be 1 to 100+.
+
+For EACH property, return an object with these exact fields:
+- "address": street address only (no city/state)
+- "city": city name
+- "state": 2-letter state code
+- "comp_type": exactly one of "sale", "lease", or "land"
+  - If the document shows asking rent / rent PSF / lease terms → "lease"
+  - If the document shows sale price / cap rate / buyer → "sale"
+  - If primarily vacant land with acreage → "land"
+- "building_sf": total building square footage as a number (not available SF)
+- "lot_acres": land area in acres as a number
+- "year_built": 4-digit year as number
+- "clear_height": warehouse clear height in feet as a number (convert 24'8" to 24.67)
+- "docks": number of dock doors (exterior docks)
+- "price": asking price or sale price as a number (no $)
+- "price_per_sf": price per square foot as a number
+- "rent_psf": annual asking rent per SF as a number (if it says $4.50 SF/Year/NNN, use 4.50)
+- "cap_rate": cap rate as a number (7.5 not 0.075)
+- "buyer": buyer name or null
+- "seller": owner/seller name (check "True Owner", "Recorded Owner", "Property Management" sections)
+- "notes": combine property type (Warehouse, Distribution, Manufacturing, Industrial), zoning, tenant names, availability %, drive-ins count, and any other notable details into a short string
+- "comp_date": date as YYYY-MM-DD or null
+
+IMPORTANT RULES:
+- If a value is "Withheld", "Not For Sale", "Not Disclosed", "Negotiable", or "—", use null
+- For building size, use the TOTAL building SF (RBA), NOT the available/vacant SF
+- For ranges like "24,000 - 200,000", use the total building SF if available, otherwise the first number
+- Extract the owner from "True Owner", "Recorded Owner", or "Contacts" sections
+- Do NOT skip any properties — extract every single one listed
+- Return ONLY the JSON array, no other text or markdown` }
           ]}]
         })
       })
+
+      if (!resp.ok) {
+        const errText = await resp.text()
+        console.error('API error:', resp.status, errText)
+        setUploadStatus('API error ' + resp.status + ': check console for details')
+        setExtracting(false); return
+      }
+
       const data = await resp.json()
       const text = (data.content || []).map(c => c.text || '').join('')
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-      if (!jsonMatch) { setUploadStatus('Could not parse AI response'); setExtracting(false); return }
-      const extracted = JSON.parse(jsonMatch[0])
-      const inserts = extracted.map(c => ({
-        ...c, market: (c.city && c.state) ? c.city + ', ' + c.state : 'Other',
-        source: 'PDF: ' + file.name, comp_date: c.comp_date || new Date().toISOString().slice(0, 10),
-      })).filter(c => c.address)
-      if (inserts.length === 0) { setUploadStatus('No comps found in PDF'); setExtracting(false); return }
-      const { error } = await supabase.from('market_comps').insert(inserts)
-      if (error) setUploadStatus('Error: ' + error.message)
-      else { setUploadStatus('Extracted ' + inserts.length + ' comps from PDF'); fetchComps() }
-    } catch (e) { setUploadStatus('PDF extraction failed: ' + e.message) }
-    setExtracting(false); setTimeout(() => setUploadStatus(''), 5000)
+
+      if (!text) {
+        setUploadStatus('AI returned empty response. PDF may be too large or image-only.')
+        setExtracting(false); return
+      }
+
+      // Parse JSON — handle markdown code blocks
+      let jsonStr = text
+      const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (fenced) jsonStr = fenced[1]
+      const jsonMatch = jsonStr.match(/\[[\s\S]*\]/)
+      if (!jsonMatch) {
+        console.error('AI response (no JSON found):', text.substring(0, 500))
+        setUploadStatus('Could not find JSON in AI response. Check console.')
+        setExtracting(false); return
+      }
+
+      let extracted
+      try { extracted = JSON.parse(jsonMatch[0]) } catch (e) {
+        console.error('JSON parse error:', e, jsonMatch[0].substring(0, 300))
+        setUploadStatus('Invalid JSON from AI. Check console.')
+        setExtracting(false); return
+      }
+
+      setUploadStatus('AI found ' + extracted.length + ' properties, inserting...')
+
+      // Clean and prepare inserts
+      const inserts = extracted.map(c => {
+        // Sanitize every field
+        const clean = (v) => (v === null || v === undefined || String(v).trim() === '' || String(v).toLowerCase() === 'null') ? null : String(v).trim()
+        const cleanN = (v) => { const n = cleanNum(v); return (n !== null && !isNaN(n)) ? n : null }
+        const addr = clean(c.address)
+        if (!addr) return null
+        const city = clean(c.city)
+        const state = clean(c.state) || 'NC'
+        return {
+          address: addr, city, state,
+          comp_type: ['sale','lease','land'].includes(c.comp_type) ? c.comp_type : 'lease',
+          market: (city && state) ? city + ', ' + state : 'Other',
+          building_sf: cleanN(c.building_sf),
+          lot_acres: cleanN(c.lot_acres),
+          year_built: cleanN(c.year_built),
+          clear_height: cleanN(c.clear_height),
+          docks: cleanN(c.docks),
+          price: cleanN(c.price),
+          price_per_sf: cleanN(c.price_per_sf),
+          rent_psf: cleanN(c.rent_psf),
+          cap_rate: cleanN(c.cap_rate),
+          buyer: clean(c.buyer),
+          seller: clean(c.seller),
+          notes: clean(c.notes),
+          source: 'PDF: ' + file.name,
+          comp_date: clean(c.comp_date) || new Date().toISOString().slice(0, 10),
+          latitude: cleanN(c.latitude),
+          longitude: cleanN(c.longitude),
+        }
+      }).filter(Boolean)
+
+      if (inserts.length === 0) { setUploadStatus('AI found properties but none had valid addresses.'); setExtracting(false); return }
+
+      // Auto-calc price_per_sf where missing
+      inserts.forEach(c => { if (!c.price_per_sf && c.price && c.building_sf) c.price_per_sf = Math.round(c.price / c.building_sf) })
+
+      // Batch insert
+      let inserted = 0
+      for (let i = 0; i < inserts.length; i += 50) {
+        const chunk = inserts.slice(i, i + 50)
+        const { error } = await supabase.from('market_comps').insert(chunk)
+        if (error) { console.error('Insert error:', error.message, chunk[0]); setUploadStatus('DB error: ' + error.message); break }
+        inserted += chunk.length
+        setUploadStatus('Inserted ' + inserted + '/' + inserts.length + '...')
+      }
+
+      setUploadStatus('Extracted ' + inserted + ' comps from PDF')
+      fetchComps()
+    } catch (e) {
+      console.error('PDF extraction error:', e)
+      setUploadStatus('PDF extraction failed: ' + e.message)
+    }
+    setExtracting(false); setTimeout(() => setUploadStatus(''), 6000)
   }
 
   const saleComps = filtered.filter(c => c.comp_type === 'sale')
