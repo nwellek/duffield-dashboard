@@ -280,30 +280,40 @@ export default function CompsTab() {
   }
 
   const extractFromPDF = async (file) => {
-    setExtracting(true); setUploadStatus('Reading PDF text...')
+    setExtracting(true); setUploadStatus('Preparing PDF...')
     try {
       var buf = await file.arrayBuffer()
-      // Load pdf.js from CDN to extract text client-side (avoids 4.5MB Vercel body limit)
-      if (!window.pdfjsLib) {
-        var script = document.createElement('script')
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
-        document.head.appendChild(script)
-        await new Promise(function(resolve) { script.onload = resolve })
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      var bytes = new Uint8Array(buf)
+      var bin = ''; for (var i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192))
+      var base64 = btoa(bin)
+      var sizeMB = Math.round(base64.length / 1024 / 1024 * 10) / 10
+      console.log('PDF base64 size:', sizeMB, 'MB')
+
+      if (sizeMB > 3.5) {
+        // Too large for Vercel body limit - fall back to text extraction
+        setUploadStatus('PDF is ' + sizeMB + 'MB (too large for direct upload). Extracting text...')
+        if (!window.pdfjsLib) {
+          var script = document.createElement('script')
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+          document.head.appendChild(script)
+          await new Promise(function(resolve) { script.onload = resolve })
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+        }
+        var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise
+        var allText = ''
+        for (var p = 1; p <= pdf.numPages; p++) {
+          var page = await pdf.getPage(p)
+          var content = await page.getTextContent()
+          var items = content.items.sort(function(a,b) { return b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4] })
+          allText += '\n--- PAGE ' + p + ' ---\n' + items.map(function(item) { return item.str }).join(' ')
+        }
+        if (allText.trim().length < 100) { setUploadStatus('PDF has no extractable text. Try a smaller or compressed PDF.'); setExtracting(false); return }
+        var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_text:allText}) })
+      } else {
+        // Small enough to send as base64 directly (much better extraction quality)
+        setUploadStatus('Sending ' + sizeMB + 'MB PDF to AI...')
+        var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_base64:base64}) })
       }
-      var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise
-      var allText = ''
-      for (var p = 1; p <= pdf.numPages; p++) {
-        var page = await pdf.getPage(p)
-        var content = await page.getTextContent()
-        var pageText = content.items.map(function(item) { return item.str }).join(' ')
-        allText += '\n--- PAGE ' + p + ' ---\n' + pageText
-      }
-      console.log('PDF text extracted:', allText.length, 'chars from', pdf.numPages, 'pages')
-      console.log('First 2000 chars:', allText.substring(0, 2000))
-      if (allText.trim().length < 50) { setUploadStatus('PDF appears to be image-only (no extractable text). Try a text-based PDF.'); setExtracting(false); return }
-      setUploadStatus('Extracted ' + Math.round(allText.length/1024) + 'KB text from ' + pdf.numPages + ' pages. Sending to AI...')
-      var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_text:allText}) })
       var data = await resp.json()
       console.log('API response:', JSON.stringify(data).substring(0, 1000))
       if (!resp.ok) { console.error('API error details:', data); setUploadStatus('API error: '+(data.error||resp.status)); setExtracting(false); return }
