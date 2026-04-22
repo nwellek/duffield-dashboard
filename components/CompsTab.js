@@ -299,13 +299,16 @@ export default function CompsTab() {
         var pageText = content.items.map(function(item) { return item.str }).join(' ')
         allText += '\n--- PAGE ' + p + ' ---\n' + pageText
       }
+      console.log('PDF text extracted:', allText.length, 'chars from', pdf.numPages, 'pages')
+      console.log('First 2000 chars:', allText.substring(0, 2000))
       if (allText.trim().length < 50) { setUploadStatus('PDF appears to be image-only (no extractable text). Try a text-based PDF.'); setExtracting(false); return }
       setUploadStatus('Extracted ' + Math.round(allText.length/1024) + 'KB text from ' + pdf.numPages + ' pages. Sending to AI...')
       var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_text:allText}) })
       var data = await resp.json()
-      if (!resp.ok) { setUploadStatus('API error: '+(data.error||resp.status)); setExtracting(false); return }
+      console.log('API response:', JSON.stringify(data).substring(0, 1000))
+      if (!resp.ok) { console.error('API error details:', data); setUploadStatus('API error: '+(data.error||resp.status)); setExtracting(false); return }
       var extracted = data.comps
-      if (!extracted||extracted.length===0) { setUploadStatus('No properties found in PDF'); setExtracting(false); return }
+      if (!extracted||extracted.length===0) { console.log('AI returned empty comps array. Full response:', JSON.stringify(data)); setUploadStatus('No properties found in PDF. Check console for details.'); setExtracting(false); return }
       var inserts = extracted.map(function(c) {
         var cl = function(v) { return (v==null||String(v).trim()===''||String(v).toLowerCase()==='null')?null:String(v).trim() }
         var addr = cl(c.address); if (!addr) return null
