@@ -20,7 +20,6 @@ const COMP_FIELDS = [
   { key: 'lot_acres', label: 'Acres', w: 60 },
   { key: 'year_built', label: 'Built', w: 55 },
   { key: 'clear_height', label: 'Clr Ht', w: 50 },
-  { key: 'docks', label: 'Docks', w: 45 },
   { key: 'price', label: 'Price', w: 90 },
   { key: 'price_per_sf', label: '$/SF', w: 65 },
   { key: 'rent_psf', label: 'Rent/SF', w: 65 },
@@ -198,7 +197,7 @@ export default function CompsTab() {
   const [pendingComps, setPendingComps] = useState(null)
   const fileRef = useRef(null)
 
-  const emptyComp = { market: MARKETS[0], comp_type: 'sale', address: '', city: '', state: '', building_sf: '', lot_acres: '', price: '', price_per_sf: '', rent_psf: '', cap_rate: '', clear_height: '', year_built: '', docks: '', buyer: '', seller: '', source: '', notes: '', comp_date: new Date().toISOString().slice(0,10) }
+  const emptyComp = { market: MARKETS[0], comp_type: 'sale', address: '', city: '', state: '', building_sf: '', lot_acres: '', price: '', price_per_sf: '', rent_psf: '', cap_rate: '', clear_height: '', year_built: '', buyer: '', seller: '', source: '', notes: '', comp_date: new Date().toISOString().slice(0,10) }
   const [newComp, setNewComp] = useState(emptyComp)
 
   const fetchComps = useCallback(async () => {
@@ -217,7 +216,7 @@ export default function CompsTab() {
 
   const addComp = async () => {
     var cl = { ...newComp }
-    ;['building_sf','lot_acres','price','price_per_sf','rent_psf','cap_rate','clear_height','year_built','docks'].forEach(k => { cl[k] = cn(cl[k]) })
+    ;['building_sf','lot_acres','price','price_per_sf','rent_psf','cap_rate','clear_height','year_built'].forEach(k => { cl[k] = cn(cl[k]) })
     if (cl.price&&cl.building_sf&&!cl.price_per_sf) cl.price_per_sf = Math.round(cl.price/cl.building_sf)
     if (!cl.comp_date) cl.comp_date = null
     await supabase.from('market_comps').insert(cl)
@@ -225,7 +224,7 @@ export default function CompsTab() {
   }
   const deleteComp = async id => { if (!confirm('Delete this comp?')) return; await supabase.from('market_comps').delete().eq('id',id); fetchComps() }
   const startEdit = (id,field,val) => { setEditing({id,field}); setEditVal(val||'') }
-  const saveEdit = async () => { if (!editing) return; var val = ['building_sf','lot_acres','price','price_per_sf','rent_psf','cap_rate','clear_height','year_built','docks'].includes(editing.field)?cn(editVal):editVal; await supabase.from('market_comps').update({[editing.field]:val}).eq('id',editing.id); setEditing(null); setEditVal(''); fetchComps() }
+  const saveEdit = async () => { if (!editing) return; var val = ['building_sf','lot_acres','price','price_per_sf','rent_psf','cap_rate','clear_height','year_built'].includes(editing.field)?cn(editVal):editVal; await supabase.from('market_comps').update({[editing.field]:val}).eq('id',editing.id); setEditing(null); setEditVal(''); fetchComps() }
   const cancelEdit = () => { setEditing(null); setEditVal('') }
 
   const handleFileUpload = async (file) => {
@@ -272,7 +271,7 @@ export default function CompsTab() {
       var rentV=get('rent_psf')||getAny('rent_psf','askingrent'), priceV=get('price')||getAny('price','saleprice')
       if (!ct||['lease','sale','land'].indexOf(ct)===-1) { if (rentV&&cleanNum(rentV)) ct='lease'; else ct='sale' }
       var notes = [getAny('_proptype','propertytype','type'), getAny('_zoning','zoning')?'Zoning: '+getAny('_zoning','zoning'):'', getAny('_tenant','tenant')?'Tenant: '+getAny('_tenant','tenant'):'', get('notes')].filter(Boolean).join(' | ')||null
-      var comp = { address:addr.split('\n')[0].trim(), city:city, state:state, comp_type:ct, market:get('market')||(city&&state?city+', '+state:'Other'), building_sf:cleanNum(get('building_sf')||getAny('building_sf','size','sqft')), lot_acres:cleanNum(get('lot_acres')||getAny('lot_acres','acres')), year_built:cleanNum(get('year_built')||getAny('year_built','built')), clear_height:cleanHeight(get('clear_height')||getAny('clear_height','clearheight')), docks:cleanNum(get('docks')||getAny('docks','dockdoors')), price:cleanNum(priceV), price_per_sf:cleanNum(get('price_per_sf')||getAny('price_per_sf','pricepsf')), rent_psf:cleanNum(rentV), cap_rate:cleanNum(get('cap_rate')||getAny('cap_rate','caprate')), buyer:get('buyer')||getAny('buyer','purchaser'), seller:get('seller')||getAny('seller','owner','trueowner'), source:'Upload: '+fileName, notes:notes, comp_date:get('comp_date')||getAny('comp_date','saledate','date')||new Date().toISOString().slice(0,10), latitude:cleanNum(get('latitude')), longitude:cleanNum(get('longitude')) }
+      var comp = { address:addr.split('\n')[0].trim(), city:city, state:state, comp_type:ct, market:get('market')||(city&&state?city+', '+state:'Other'), building_sf:cleanNum(get('building_sf')||getAny('building_sf','size','sqft')), lot_acres:cleanNum(get('lot_acres')||getAny('lot_acres','acres')), year_built:cleanNum(get('year_built')||getAny('year_built','built')), clear_height:cleanHeight(get('clear_height')||getAny('clear_height','clearheight')), price:cleanNum(priceV), price_per_sf:cleanNum(get('price_per_sf')||getAny('price_per_sf','pricepsf')), rent_psf:cleanNum(rentV), cap_rate:cleanNum(get('cap_rate')||getAny('cap_rate','caprate')), buyer:get('buyer')||getAny('buyer','purchaser'), seller:get('seller')||getAny('seller','owner','trueowner'), source:'Upload: '+fileName, notes:notes, comp_date:get('comp_date')||getAny('comp_date','saledate','date')||new Date().toISOString().slice(0,10), latitude:cleanNum(get('latitude')), longitude:cleanNum(get('longitude')) }
       if (!comp.price_per_sf&&comp.price&&comp.building_sf) comp.price_per_sf=Math.round(comp.price/comp.building_sf)
       inserts.push(comp)
     })
@@ -281,13 +280,28 @@ export default function CompsTab() {
   }
 
   const extractFromPDF = async (file) => {
-    setExtracting(true); setUploadStatus('Sending PDF to AI...')
+    setExtracting(true); setUploadStatus('Reading PDF text...')
     try {
-      var buf = await file.arrayBuffer(); var bytes = new Uint8Array(buf)
-      var bin=''; for (var i=0;i<bytes.length;i+=8192) bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+8192))
-      var base64 = btoa(bin)
-      setUploadStatus('AI reading '+Math.round(buf.byteLength/1024)+'KB PDF...')
-      var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_base64:base64}) })
+      var buf = await file.arrayBuffer()
+      // Load pdf.js from CDN to extract text client-side (avoids 4.5MB Vercel body limit)
+      if (!window.pdfjsLib) {
+        var script = document.createElement('script')
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+        document.head.appendChild(script)
+        await new Promise(function(resolve) { script.onload = resolve })
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      }
+      var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise
+      var allText = ''
+      for (var p = 1; p <= pdf.numPages; p++) {
+        var page = await pdf.getPage(p)
+        var content = await page.getTextContent()
+        var pageText = content.items.map(function(item) { return item.str }).join(' ')
+        allText += '\n--- PAGE ' + p + ' ---\n' + pageText
+      }
+      if (allText.trim().length < 50) { setUploadStatus('PDF appears to be image-only (no extractable text). Try a text-based PDF.'); setExtracting(false); return }
+      setUploadStatus('Extracted ' + Math.round(allText.length/1024) + 'KB text from ' + pdf.numPages + ' pages. Sending to AI...')
+      var resp = await fetch('/api/extract-comps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf_text:allText}) })
       var data = await resp.json()
       if (!resp.ok) { setUploadStatus('API error: '+(data.error||resp.status)); setExtracting(false); return }
       var extracted = data.comps
@@ -296,7 +310,7 @@ export default function CompsTab() {
         var cl = function(v) { return (v==null||String(v).trim()===''||String(v).toLowerCase()==='null')?null:String(v).trim() }
         var addr = cl(c.address); if (!addr) return null
         var city=cl(c.city), state=cl(c.state)||'NC'
-        return { address:addr, city:city, state:state, comp_type:['sale','lease','land'].indexOf(c.comp_type)>=0?c.comp_type:'lease', market:(city&&state)?city+', '+state:'Other', building_sf:cleanNum(c.building_sf), lot_acres:cleanNum(c.lot_acres), year_built:cleanNum(c.year_built), clear_height:cleanNum(c.clear_height), docks:cleanNum(c.docks), price:cleanNum(c.price), price_per_sf:cleanNum(c.price_per_sf), rent_psf:cleanNum(c.rent_psf), cap_rate:cleanNum(c.cap_rate), buyer:cl(c.buyer), seller:cl(c.seller), notes:cl(c.notes), source:'PDF: '+file.name, comp_date:cl(c.comp_date)||new Date().toISOString().slice(0,10), latitude:cleanNum(c.latitude), longitude:cleanNum(c.longitude) }
+        return { address:addr, city:city, state:state, comp_type:['sale','lease','land'].indexOf(c.comp_type)>=0?c.comp_type:'lease', market:(city&&state)?city+', '+state:'Other', building_sf:cleanNum(c.building_sf), lot_acres:cleanNum(c.lot_acres), year_built:cleanNum(c.year_built), clear_height:cleanNum(c.clear_height), price:cleanNum(c.price), price_per_sf:cleanNum(c.price_per_sf), rent_psf:cleanNum(c.rent_psf), cap_rate:cleanNum(c.cap_rate), buyer:cl(c.buyer), seller:cl(c.seller), notes:cl(c.notes), source:'PDF: '+file.name, comp_date:cl(c.comp_date)||new Date().toISOString().slice(0,10), latitude:cleanNum(c.latitude), longitude:cleanNum(c.longitude) }
       }).filter(Boolean)
       inserts.forEach(function(c) { if (!c.price_per_sf&&c.price&&c.building_sf) c.price_per_sf=Math.round(c.price/c.building_sf) })
       if (inserts.length===0) { setUploadStatus('No valid addresses found'); setExtracting(false); return }
@@ -337,7 +351,7 @@ export default function CompsTab() {
     return editInput(c.id, field, c[field])
   }
 
-  const numFields = new Set(['building_sf','lot_acres','year_built','clear_height','docks','price','price_per_sf','rent_psf','cap_rate'])
+  const numFields = new Set(['building_sf','lot_acres','year_built','clear_height','price','price_per_sf','rent_psf','cap_rate'])
 
   return (
     <div style={{ fontFamily: bf }}>
@@ -424,7 +438,7 @@ export default function CompsTab() {
       {showAdd&&(
         <div style={{background:B.blue05,border:'1px solid '+B.blue20,borderRadius:6,padding:16,marginBottom:14}}>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))',gap:8}}>
-            {[{k:'comp_type',l:'Type',type:'select',opts:['sale','lease','land']},{k:'address',l:'Address *'},{k:'city',l:'City'},{k:'state',l:'State'},{k:'market',l:'Market',type:'select',opts:MARKETS},{k:'building_sf',l:'Building SF'},{k:'lot_acres',l:'Acres'},{k:'year_built',l:'Year Built'},{k:'clear_height',l:'Clear Height'},{k:'docks',l:'Docks'},{k:'price',l:'Price'},{k:'price_per_sf',l:'$/SF'},{k:'rent_psf',l:'Rent $/SF/YR'},{k:'cap_rate',l:'Cap Rate %'},{k:'buyer',l:'Buyer'},{k:'seller',l:'Seller/Owner'},{k:'comp_date',l:'Date',type:'date'},{k:'source',l:'Source'},{k:'notes',l:'Notes'}].map(f=>(
+            {[{k:'comp_type',l:'Type',type:'select',opts:['sale','lease','land']},{k:'address',l:'Address *'},{k:'city',l:'City'},{k:'state',l:'State'},{k:'market',l:'Market',type:'select',opts:MARKETS},{k:'building_sf',l:'Building SF'},{k:'lot_acres',l:'Acres'},{k:'year_built',l:'Year Built'},{k:'clear_height',l:'Clear Height'},{k:'price',l:'Price'},{k:'price_per_sf',l:'$/SF'},{k:'rent_psf',l:'Rent $/SF/YR'},{k:'cap_rate',l:'Cap Rate %'},{k:'buyer',l:'Buyer'},{k:'seller',l:'Seller/Owner'},{k:'comp_date',l:'Date',type:'date'},{k:'source',l:'Source'},{k:'notes',l:'Notes'}].map(f=>(
               <div key={f.k}><label style={{fontSize:10,fontWeight:600,color:B.gray,textTransform:'uppercase'}}>{f.l}</label>
                 {f.type==='select'?<select value={newComp[f.k]} onChange={e=>setNewComp({...newComp,[f.k]:e.target.value})} style={inpS}>{f.opts.map(o=><option key={o} value={o}>{o}</option>)}</select>
                 :<input type={f.type||'text'} value={newComp[f.k]} onChange={e=>setNewComp({...newComp,[f.k]:e.target.value})} style={inpS} />}
