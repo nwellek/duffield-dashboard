@@ -333,12 +333,14 @@ function ImportModal({ onClose, onImported }) {
 function ContactForm({ contact, onSave, onCancel, onDelete }) {
   const [c, setC] = useState({ ...contact })
   const [saving, setSaving] = useState(false)
-  const set = (k, v) => setC(p => ({ ...p, [k]: v }))
+  const set = useCallback((k, v) => setC(p => ({ ...p, [k]: v })), [])
   const handleSave = async () => { setSaving(true); await onSave(c); setSaving(false) }
 
   const is = { width: '100%', padding: '8px 10px', border: `1px solid ${B.gray40}`, borderRadius: 3, fontSize: 13, color: B.black, background: B.white, outline: 'none', boxSizing: 'border-box', fontFamily: bf }
   const ls = { fontSize: 11, fontWeight: 500, color: B.gray, marginBottom: 2, display: 'block', fontFamily: bf }
-  const F = ({ l, k, ph, h }) => (
+
+  // Render field inline instead of as a component to avoid remount/focus loss
+  const renderField = (l, k, ph, h) => (
     <div style={{ flex: h ? '1 1 47%' : '1 1 100%', minWidth: h ? 140 : 'auto' }}>
       <label style={ls}>{l}</label>
       <input style={is} placeholder={ph} value={c[k] ?? ''} onChange={e => set(k, e.target.value)} />
@@ -348,7 +350,7 @@ function ContactForm({ contact, onSave, onCancel, onDelete }) {
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ fontSize: 18, fontWeight: 700, color: B.blue, marginBottom: 14, fontFamily: hf }}>{contact.id ? 'Edit contact' : 'New contact'}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="Full name" k="name" ph="John Smith" h />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{renderField("Full name", "name", "John Smith", true)}
         <div style={{ flex: '1 1 47%', minWidth: 140 }}>
           <label style={ls}>Category</label>
           <select style={{ ...is, cursor: 'pointer' }} value={c.category} onChange={e => set('category', e.target.value)}>
@@ -356,9 +358,9 @@ function ContactForm({ contact, onSave, onCancel, onDelete }) {
           </select>
         </div>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="Company" k="company" ph="Burnham Industrial" h /><F l="Title" k="title" ph="Managing Director" h /></div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="Phone" k="phone" ph="(312) 555-0100" h /><F l="Email" k="email" ph="john@company.com" h /></div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}><F l="City" k="city" ph="Chicago, IL" h />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{renderField("Company", "company", "Burnham Industrial", true)}{renderField("Title", "title", "Managing Director", true)}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{renderField("Phone", "phone", "(312) 555-0100", true)}{renderField("Email", "email", "john@company.com", true)}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{renderField("City", "city", "Chicago, IL", true)}
         <div style={{ flex: '1 1 47%', minWidth: 140 }}>
           <label style={ls}>Last contact</label>
           <input style={is} type="date" value={c.last_contact_date || ''} onChange={e => set('last_contact_date', e.target.value)} />
