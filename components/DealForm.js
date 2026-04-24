@@ -124,6 +124,12 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
   const [tab, setTab] = useState('summary')
   const [activities, setActivities] = useState([])
   const [newActivity, setNewActivity] = useState({ type: 'note', content: '' })
+  // AI Scoring state
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiCatLoading, setAiCatLoading] = useState(null) // which category is loading
+  const [aiResult, setAiResult] = useState(null) // full AI re-score result
+  const [aiCatResults, setAiCatResults] = useState({}) // per-category AI results
+  const [aiError, setAiError] = useState(null)
 
   const set = (k, v) => setD(p => {
     const n = { ...p, [k]: v }
@@ -153,6 +159,71 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
   const deleteActivity = async (id) => {
     await supabase.from('deal_activity').delete().eq('id', id)
     fetchActivity()
+  }
+
+  // ── AI SCORING FUNCTIONS ──
+  const runAiScore = async (category = 'all') => {
+    const isFullRescore = category === 'all'
+    if (isFullRescore) { setAiLoading(true); setAiResult(null) }
+    else setAiCatLoading(category)
+    setAiError(null)
+
+    try {
+      const result = scoreDeal(d)
+      const res = await fetch('/api/ai-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deal: d,
+          scores: result.scores,
+          category: category,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'AI scoring failed')
+
+      if (isFullRescore) {
+        setAiResult(data.result)
+      } else {
+        setAiCatResults(prev => ({ ...prev, [category]: data.result }))
+      }
+    } catch (e) {
+      setAiError(e.message)
+    } finally {
+      if (isFullRescore) setAiLoading(false)
+      else setAiCatLoading(null)
+    }
+  }
+
+  // Accept a single AI score as override
+  const acceptAiScore = (overrideKey, score) => {
+    const overrides = (() => { try { return JSON.parse(d.score_overrides || '{}') } catch(e) { return {} } })()
+    overrides[overrideKey] = String(score)
+    set('score_overrides', JSON.stringify(overrides))
+  }
+
+  // Accept all AI scores at once
+  const acceptAllAiScores = () => {
+    if (!aiResult || !aiResult.scores) return
+    const overrides = (() => { try { return JSON.parse(d.score_overrides || '{}') } catch(e) { return {} } })()
+    const mapping = {
+      basis_vs_market: 'basis_vs_market',
+      estimated_yoc: 'estimated_yoc',
+      clear_height: 'clear_height',
+      doors: 'doors',
+      size_fit: 'size_fit',
+      market_quality: 'market_quality',
+      interstate: 'interstate',
+      tenant_demand: 'tenant_demand',
+      broker: 'broker',
+      off_market: 'off_market',
+      seller_motivation: 'seller_motivation',
+    }
+    Object.entries(aiResult.scores).forEach(([key, val]) => {
+      const oKey = mapping[key] || key
+      overrides[oKey] = String(val.score)
+    })
+    set('score_overrides', JSON.stringify(overrides))
   }
 
   const handleSave = async () => { setSaving(true); await onSave(d); setSaving(false) }
@@ -280,6 +351,22 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
             const mktData = scoreDeal(d).market || {}
             const compPSF = mktData.comp_psf || '?'
 
+            // Map for AI category keys → override keys
+            const AI_KEY_MAP = {
+              'Basis vs Market': 'basis_vs_market',
+              'Estimated YOC': 'estimated_yoc',
+              'Clear Height': 'clear_height',
+              'Doors': 'doors',
+              'Lot:Building Ratio': 'size_fit',
+              'Size Fit': 'size_fit',
+              'Market Quality': 'market_quality',
+              'Interstate': 'interstate',
+              'Tenant Demand': 'tenant_demand',
+              'Broker': 'broker',
+              'Off-Market': 'off_market',
+              'Seller Motivation': 'seller_motivation',
+            }
+
             const scoreItems = [
               { tier: 'Economics (45 pts)', items: [
                 { l: 'Basis vs Market', s: scores.basis_discount || 0, m: 25, reason: psf !== '?' && compPSF !== '?' ? `$${psf}/SF vs $${compPSF}/SF market comps (${compPSF > 0 ? Math.round((1 - psf / compPSF) * 100) : '?'}% ${psf < compPSF ? 'below' : 'above'})` : 'Need price + SF to calculate' },
@@ -315,9 +402,24 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
 
                 {/* Score breakdown with reasoning */}
                 <div style={{ background: B.blue05, borderRadius: 4, padding: 14, border: `1px solid ${B.blue20}`, marginTop: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase' }}>Score v2.1</span>
-                    <Badge bg={g.bg} color={g.tx} border={g.bd} style={{ fontSize: 13, padding: '3px 10px' }}>{grade} &middot; {total}/{MAX_SCORE}</Badge>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={() => runAiScore('all')}
+                        disabled={aiLoading}
+                        style={{
+                          padding: '4px 10px', borderRadius: 3, fontSize: 10, fontWeight: 700,
+                          border: '1px solid #8B5CF6', background: aiLoading ? '#EDE9FE' : '#7C3AED',
+                          color: aiLoading ? '#7C3AED' : '#fff', cursor: aiLoading ? 'wait' : 'pointer',
+                          fontFamily: hf, display: 'flex', alignItems: 'center', gap: 4,
+                        }}
+                      >
+                        <span style={{ fontSize: 12 }}>✦</span>
+                        {aiLoading ? 'Analyzing...' : 'AI Re-Score'}
+                      </button>
+                      <Badge bg={g.bg} color={g.tx} border={g.bd} style={{ fontSize: 13, padding: '3px 10px' }}>{grade} &middot; {total}/{MAX_SCORE}</Badge>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <div style={{ flex: 1, height: 6, background: B.gray20, borderRadius: 3 }}>
@@ -326,18 +428,70 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
                   </div>
                   {estYOC > 0 && <div style={{ fontSize: 11, color: B.gray, fontFamily: bf, marginBottom: 6 }}>Est. YOC: {estYOC}% | {isIOS ? 'IOS site' : 'Building deal'} | Market: {d.market || 'unknown'}</div>}
 
+                  {/* AI Error */}
+                  {aiError && (
+                    <div style={{ padding: '6px 10px', background: '#FEE2E2', borderRadius: 3, fontSize: 11, color: '#991B1B', fontFamily: bf, marginBottom: 8 }}>
+                      AI Error: {aiError}
+                    </div>
+                  )}
+
+                  {/* AI Full Re-Score Result Banner */}
+                  {aiResult && (
+                    <div style={{ background: '#F5F3FF', border: '1px solid #C4B5FD', borderRadius: 4, padding: 10, marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12 }}>✦</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#7C3AED', fontFamily: hf }}>AI ASSESSMENT</span>
+                          <Badge bg={(() => { const ag = gradeColor(aiResult.grade || 'D'); return ag.bg })()}
+                            color={(() => { const ag = gradeColor(aiResult.grade || 'D'); return ag.tx })()}
+                            border={(() => { const ag = gradeColor(aiResult.grade || 'D'); return ag.bd })()}
+                            style={{ fontSize: 11, padding: '2px 8px' }}>{aiResult.grade} &middot; {aiResult.total}/{MAX_SCORE}</Badge>
+                        </div>
+                        <button onClick={acceptAllAiScores} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700, border: '1px solid #10B981', background: '#D1FAE5', color: '#065F46', cursor: 'pointer', fontFamily: hf }}>Accept All</button>
+                      </div>
+                      {aiResult.overall_assessment && <div style={{ fontSize: 11, color: '#4C1D95', fontFamily: bf, lineHeight: 1.5, marginBottom: 4 }}>{aiResult.overall_assessment}</div>}
+                      {aiResult.edge && <div style={{ fontSize: 10, color: '#6D28D9', fontFamily: bf, marginBottom: 2 }}><strong>Edge:</strong> {aiResult.edge}</div>}
+                      {aiResult.key_risks && <div style={{ fontSize: 10, color: '#991B1B', fontFamily: bf }}><strong>Risks:</strong> {aiResult.key_risks}</div>}
+                    </div>
+                  )}
+
                   {scoreItems.map((tier, ti) => (
                     <div key={ti}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: B.blue, fontFamily: hf, textTransform: 'uppercase', marginTop: ti > 0 ? 10 : 4, marginBottom: 4 }}>Tier {ti + 1} — {tier.tier}</div>
                       {tier.items.map((item, ii) => {
                         const oKey = item.l.toLowerCase().replace(/[^a-z]/g, '_')
+                        const aiKey = AI_KEY_MAP[item.l] || oKey
                         const overrides = (() => { try { return JSON.parse(d.score_overrides || '{}') } catch(e) { return {} } })()
                         const hasOverride = overrides[oKey] !== undefined && overrides[oKey] !== ''
                         const displayScore = hasOverride ? Number(overrides[oKey]) : item.s
+
+                        // Get AI result for this category (from full rescore or individual)
+                        const aiCatData = aiResult && aiResult.scores && aiResult.scores[aiKey]
+                          ? aiResult.scores[aiKey]
+                          : aiCatResults[aiKey] || null
+                        const aiScoreDiff = aiCatData ? aiCatData.score - displayScore : 0
+                        const isCatLoading = aiCatLoading === aiKey
+
                         return (
                           <div key={ii} style={{ padding: '4px 0', borderBottom: `1px solid ${B.blue10}` }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{item.l}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 11, color: B.gray, fontFamily: bf }}>{item.l}</span>
+                                {/* Per-category AI button */}
+                                <button
+                                  onClick={() => runAiScore(aiKey)}
+                                  disabled={isCatLoading || aiLoading}
+                                  title="AI evaluate this category"
+                                  style={{
+                                    width: 18, height: 18, borderRadius: '50%', border: '1px solid #C4B5FD',
+                                    background: isCatLoading ? '#EDE9FE' : 'transparent', color: '#7C3AED',
+                                    fontSize: 9, cursor: isCatLoading ? 'wait' : 'pointer', display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+                                  }}
+                                >
+                                  {isCatLoading ? '…' : '✦'}
+                                </button>
+                              </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <div style={{ width: 36, height: 4, background: B.gray20, borderRadius: 2 }}>
                                   <div style={{ width: `${item.m > 0 ? (displayScore / item.m) * 100 : 0}%`, height: '100%', background: displayScore === item.m ? '#10B981' : displayScore > item.m * 0.5 ? '#F59E0B' : displayScore > 0 ? '#6B7280' : '#EF4444', borderRadius: 2 }} />
@@ -355,6 +509,35 @@ export default function DealForm({ deal, onSave, onCancel, onDelete }) {
                               </div>
                             </div>
                             <div style={{ fontSize: 9, color: B.gray60, fontFamily: bf, marginTop: 1 }}>{item.reason}</div>
+
+                            {/* AI result for this category */}
+                            {aiCatData && (
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 3, padding: '4px 6px', background: '#F5F3FF', borderRadius: 3, border: '1px solid #EDE9FE' }}>
+                                <span style={{ fontSize: 9, flexShrink: 0, marginTop: 1 }}>✦</span>
+                                <div style={{ flex: 1, fontSize: 9, color: '#4C1D95', fontFamily: bf, lineHeight: 1.4 }}>
+                                  <strong>AI: {aiCatData.score}/{item.m}</strong>
+                                  {aiScoreDiff !== 0 && (
+                                    <span style={{ color: aiScoreDiff > 0 ? '#065F46' : '#991B1B', fontWeight: 700 }}>
+                                      {' '}({aiScoreDiff > 0 ? '+' : ''}{aiScoreDiff})
+                                    </span>
+                                  )}
+                                  {' — '}{aiCatData.reasoning}
+                                </div>
+                                {aiScoreDiff !== 0 && (
+                                  <button
+                                    onClick={() => acceptAiScore(oKey, aiCatData.score)}
+                                    title="Accept AI score"
+                                    style={{
+                                      padding: '1px 5px', borderRadius: 2, fontSize: 8, fontWeight: 700,
+                                      border: '1px solid #10B981', background: '#D1FAE5', color: '#065F46',
+                                      cursor: 'pointer', fontFamily: hf, whiteSpace: 'nowrap', flexShrink: 0,
+                                    }}
+                                  >
+                                    Accept
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )
                       })}
